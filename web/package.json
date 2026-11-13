@@ -1,0 +1,37 @@
+{
+  "name": "traination-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Traination in the browser: printable wooden-railway track and trains, geometry with manifold-3d on the user's machine.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test:e2e": "vite build && vitest run -c vitest.e2e.config.ts",
+    "render": "vitest run tests/render.test.ts --mode render"
+  },
+  "dependencies": {
+    "fflate": "0.8.3",
+    "manifold-3d": "3.5.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.186.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "playwright-core": "1.64.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.1.0"
+  }
+}

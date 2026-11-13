@@ -3,7 +3,7 @@
 Web-Tool zum Planen, Konfigurieren und Exportieren 3D-druckbarer **Holzbahn-Teile**: Schienen-Elemente und Züge, kompatibel mit den gängigen Holzeisenbahnen (Brio, IKEA Lillabo und ähnliche).
 Export als **3MF** für Bambu Studio / Orca Slicer. Aufbau und Konventionen folgen der Web-App von TactileManufactory (Repo `../TactileFactory`, siehe dessen `CLAUDE.md` und `web/`).
 
-> Status: Konzeptphase. Es gibt noch keinen Code. Nächster Schritt: Messwerte der Spurweite an echten Schienen nehmen, danach das Gerüst in `web/` anlegen (Kern, erste Elemente, 3MF-Export).
+> Status (13.11.2026, Branch `feature/erste-version`): Erste vollständige Version in `web/` (siehe `web/README.md`, ADR `docs/decisions/0001-web-app-und-modell.md`). Wizard in fünf Schritten: **Strecke** (Vorlagen Oval, Abstellgleis, Mit Brücke, Leer; Anbauen an freie Enden mit Links/Rechts; Plan als SVG mit Ziehen, Zoom und Problemanzeige), **Elemente** (9 Arten: Gerade, Kurve, Weiche, Y-Weiche, Kreuzung, Rampe, Brücke, Prellbock, Adapter; frei parametrisch), **Züge** (9 Bauarten: Dampflok, Diesellok, E-Lok, Tender, Güter-, Kessel-, Flach-, Personen- und Schüttgutwagen; Länge, 2 oder 3 Achsen, Kupplung je Ende), **Design** (Fenster, Schornstein, Dom, Dach, Ladung, Höhe, vier Farben aus der Bambu-Palette), **Export** (Drucker, Passungen, Stückliste, 3MF für Strecke und Züge, Montageanleitung). Der Zug steht in der 3D-Vorschau auf der Strecke. Dazu Projektdateien `.trproj`, Autosave, Rückgängig/Wiederholen, Deutsch/Englisch, Hell/Dunkel, Handy-Layout. 61 Unit-Tests und 4 Browser-Tests. **Noch nicht** geprüft: Maße an echten Schienen, Testdrucke, Öffnen der 3MF in Bambu Studio.
 
 ## Ziele & Randbedingungen
 - **Web-App, die Berechnung läuft im Browser des Nutzers** (kein Rechen-Server). Geometrie mit **manifold-3d**, Oberfläche in **React**, wie TactileManufactory (dort ADR 0004).
@@ -47,26 +47,37 @@ Richtwerte für Brio-kompatible Schienen. Vor dem ersten Testdruck mit dem Messs
 - 3D-Ansicht: three.js (MIT).
 - 3MF-Export: eigener Writer im Bambu-Format, angelehnt an `web/src/export/` in TactileManufactory (Filament-Profilnamen, Druckbetten, `inherits_group`).
 
-## Architektur (geplant)
+## Architektur
 ```
 web/src/
-  core/       Parameter, Validierung, Streckenlogik (Verbinder-Graph, Kreisschluss, Stückliste)   (kein 3D, kein React)
-  geometry/   manifold-3d-Builder: track/ (straight, curve, switch, crossing, ramp, buffer, adapter), vehicle/ (chassis, body, wheelset, coupler)
-  presets/    Spurweite, Verbinder, Passungen, Magnetkatalog, Mindestwände, Druckerprofile
-  export/     3MF (Bambu-Format), STL
-  project/    Projektdatei .trproj
-  ui/         React-Wizard, Streckenplaner (2D), 3D-Vorschau, Texte DE/EN
-web/tests/    Invarianten (siehe unten)
-docs/         concept.md, decisions/ (ADRs), reference/ (Messwerte, Fotos)
+  presets/    gauge.ts (Spurweite, Verbinder, Standardstücke), vehicle.ts (Räder, Achsen, Kupplungen, Magnete), print.ts (Passungen, Drucker)
+  core/       track.ts (Elemente: Pfade + Anschlüsse, Varianten), layout.ts (Plan als Baum, Kreisschluss, Überlappung, Stückliste),
+              vehicle.ts (Fahrzeuge, abgeleitete Maße, Prüfungen), project.ts (Projekt, Vorlagen, .trproj), route.ts (Zug auf der Strecke)
+  geometry/   track.ts (Profil-Sweep, Rillen, Zapfen/Buchsen, Rampen, Brücke, Prellbock), vehicle.ts (Fahrgestell, Kupplungen, Aufbauten, Räder, Achsen), engine.ts
+  export/     bambu3mf.ts (aus TactileManufactory), plates.ts (Druckbetten, Dateien à 4 Platten), printItems.ts
+  app/        store.ts (Zustand, Rückgängig, Autosave), engine.worker.ts, engineClient.ts (Cache)
+  ui/         App, Seiten je Schritt, PlanView (SVG), SceneView/Viewer3D (three.js), texts_de/texts_en, styles.css
+web/tests/    Unit-Tests; e2e/ Browser-Tests; render.test.ts = Bilder ohne Browser (`npm run render`)
+docs/         decisions/ (ADRs)
 ```
-- Abhängigkeitsrichtung: `core` ← `geometry` ← `export`, `ui`. `core` importiert nie manifold-3d oder React.
+- Abhängigkeitsrichtung: `presets` ← `core` ← `geometry` ← `export`, `app`, `ui`. `core` importiert nie manifold-3d oder React.
+- **Element-Frame:** Anschluss 0 im Ursprung, zeigt nach −X, Strecke läuft nach +X; „links“ = gegen den Uhrzeigersinn. Jedes Stück im Plan steckt mit `port` an `parent.port` seines Elternstücks; Wurzelstücke haben `at` (Lage, Drehung).
+- **Fahrzeug-Frame:** Z = 0 Unterkante Fahrgestell, vorn = +X. Die Räder reichen bis zum Rillengrund, das Fahrgestell hält `TRACK_CLEARANCE` über der Schiene. Der Aufbau hat Z = 0 auf dem Deck.
+
+## Befehle (in `web/`)
+```
+npm install / npm run dev / npm test / npm run typecheck / npm run build
+npm run test:e2e      # Build + Browser-Tests (installierter Chrome, sonst Edge); TRAINATION_SHOTS=<ordner> für Screenshots
+npm run render        # Bilder von Elementen, Fahrzeugen und Vorlagen nach web/renders/ (ohne Browser)
+```
+**Windows:** Node liegt unter `C:\Program Files\nodejs` und ist nicht im PATH der Shell (vorher ergänzen). Vitest braucht ein **großes Laufwerk** im Arbeitsverzeichnis (`C:\…`). Mit `c:\…` meldet es „failed to find the runner“. Unter Git Bash kein `python` aufrufen: Der Store-Platzhalter hängt.
 - Parameter sind unveränderliche, validierte Datenobjekte. Geometrie ist eine reine Funktion `params -> Teile`.
 
 ## Konventionen
 - **Einheiten: mm.** Koordinaten: Z nach oben, Ursprung in der Mitte des Teils (XY), Unterseite bei Z = 0. Schienen-Elemente: Fahrtrichtung entlang +X.
 - Code, Kommentare, Commit-Messages: **Englisch**. Doku (`CLAUDE.md`, `docs/`): Deutsch. UI-Texte: Deutsch und Englisch über eine Übersetzungsschicht, keine Strings im Logikcode. Neue Texte immer in beiden Sprachen anlegen.
 - Toleranzen und Mindestmaße sind **benannte Konstanten** in `presets/`, nie Magic Numbers im Builder-Code.
-- **Passung/Spiel = Aufmaß auf das Gesamtmaß**, nicht je Seite: Zapfenkopf 12 mm + 0,3 → Buchse 12,3 mm.
+- **Passung/Spiel = Aufmaß auf das Gesamtmaß**, nicht je Seite: Zapfenkopf 11,5 mm + 0,4 → Buchse 11,9 mm.
 - Deterministisch: gleiche Parameter → gleiche Geometrie.
 - Zeilenenden LF (`.gitattributes`). Keine Binärdateien > 1 MB ins Git ohne Absprache.
 
@@ -91,12 +102,13 @@ Geometrie-Invarianten werden getestet, nicht nur „läuft durch“:
 - Markennamen (Brio, IKEA) nur beschreibend für die Kompatibilität verwenden, nie als Produktname oder Logo.
 
 ## Offene Fragen (bitte klären, dann hier streichen)
-Geklärt: Räder und Achsen werden selbst gedruckt. Kupplungen gibt es magnetisch und als Anhängekupplung.
+Geklärt: Räder und Achsen werden selbst gedruckt. Kupplungen gibt es magnetisch und als Anhängekupplung. Der Streckenplaner ist von Anfang an dabei (erste Version gebaut, 13.11.2026).
 
-- **Startumfang v1:** Vorschlag: Gerade, Kurve, Weiche, Lok und ein Waggon, Streckenplaner erst in v2. Oder der Planer von Anfang an?
-- **Spurweite:** Messwerte an echten Brio- und IKEA-Schienen nehmen (siehe oben).
-- **Räder:** Achse als Steckachse mit Clip, als Print-in-Place oder als Rad mit Klemmsitz auf der Achse? Per Testdruck klären.
-- **Magnetkupplung:** Magnetgröße, Höhe über der Schiene, Polung (Brio-Konvention: welches Ende zieht an?). Soll das Tool die Polung markieren?
+- **Spurweite:** Messwerte an echten Brio- und IKEA-Schienen nehmen (siehe oben), vor allem Zapfen, Buchse, Rillen und die Kurvenradien (vorläufig R 182 und R 90, je 45°).
+- **Räder (umgesetzt, Testdruck offen):** Rad liegt im Schlitz zwischen Träger und Schürze. Die Achse wird von außen durchgeschoben und in das Rad gepresst; die Abflachung (D-Profil) nimmt das Rad mit. Prüfen: Pressung 0,15 mm, Achsspiel 0,5 mm, Raddurchmesser 16 mm.
+- **Magnetkupplung (umgesetzt, Testdruck offen):** Standard Ø 8 × 3 mm, Mitte 7 mm über Unterkante Fahrgestell, Polung vorn Nord / hinten Süd nach außen (Hinweis im Tool, keine Markierung am Teil). Brio-Höhe und -Polung nachmessen.
+- **Rampen:** 2 × 38 mm auf 216 mm ist steil (Smoothstep, größte Steigung ≈ 26 %). Mit echten Zügen probieren, ggf. längere Rampen als Standard.
 - **Anhängekupplung:** eigene Form oder kompatibel zu den Haken älterer Holzbahnen?
-- **Zieldrucker:** nur Bambu P1S/X1C oder weitere Bauraum-Profile (A1 mini 180 mm)?
+- **Zieldrucker:** P1S/X1C, A1 und A1 mini sind wählbar. Die Profilnamen für A1/A1 mini (`export/bambuProfiles.ts`) sind noch nicht mit Bambu Studio geprüft.
+- **3MF in Bambu Studio:** Der Writer ist aus TactileManufactory übernommen und dort geprüft. Mit Traination-Teilen (viele Objekte, Volumen für Details) einmal in Bambu Studio öffnen.
 - **Verhältnis zu TactileManufactory:** eigenes Produkt oder später als weiterer Gerätetyp in derselben App? Gemeinsame Teile (3MF-Writer, Magnetkatalog, UI-Bausteine) ggf. als geteiltes Paket.
