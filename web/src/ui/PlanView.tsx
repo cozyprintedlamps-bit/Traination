@@ -1,15 +1,17 @@
-// The plan seen from above (SVG): pieces, grooves and free ends. Click a piece to select it, click
-// a free end to build on it, drag a piece to move its whole group, drag the background to pan,
-// wheel to zoom.
+// The plan seen from above (SVG): pieces, grooves, free ends, supports and buildings. Click a
+// piece or building to select it, click a free end to build on it, drag a piece to move its whole
+// group, drag a building to move it, drag the background to pan, wheel to zoom.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { footprint } from "../core/buildings";
 import type { Analysis } from "../core/layout";
 import { rotate } from "../core/layout";
 import type { Project } from "../core/project";
+import { supports } from "../core/supports";
 import { grooveLines, outline } from "../core/track";
 import type { Selection } from "../app/store";
-import { GROOVE_SPACING, PEG_HEAD_DIAMETER } from "../presets/gauge";
-import { tr } from "./i18n";
+import { GROOVE_SPACING, PEG_HEAD_DIAMETER, SUPPORT_LENGTH, TRACK_WIDTH } from "../presets/gauge";
+import { buildingName, tr } from "./i18n";
 
 interface View {
   cx: number;
@@ -27,18 +29,21 @@ interface Props {
   highlightElement?: string;
   onSelectPiece(id: string | undefined): void;
   onSelectPort(piece: string, index: number): void;
-  onDragStart(piece: string): void;
+  onSelectBuilding(id: string): void;
+  onDragStart(): void;
   onDrag(piece: string, dx: number, dy: number): void;
+  onDragBuilding(id: string, dx: number, dy: number): void;
 }
 
 type Pt = [number, number];
+type Drag = { kind: "pan" | "piece" | "building"; x: number; y: number; id?: string; moved: boolean };
 
 export function PlanView(props: Props) {
   const { project, analysis, selection, target, interactive } = props;
   const host = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<[number, number]>([400, 300]);
   const [view, setView] = useState<View | null>(null);
-  const drag = useRef<{ kind: "pan" | "piece"; x: number; y: number; piece?: string; moved: boolean } | null>(null);
+  const drag = useRef<Drag | null>(null);
 
   useEffect(() => {
     const el = host.current;
@@ -73,23 +78,28 @@ export function PlanView(props: Props) {
     });
   }, [project.layout, typeOf, analysis]);
 
+  const pillars = useMemo(() => supports(project.layout, project.elements, analysis), [project.layout, project.elements, analysis]);
+  const houses = useMemo(() => project.buildings.map((b) => ({ b, corners: footprint(b) })), [project.buildings]);
+
   const bounds = useMemo(() => {
     let lo: Pt = [Infinity, Infinity];
     let hi: Pt = [-Infinity, -Infinity];
-    for (const s of shapes) for (const poly of s.polygons) for (const [x, y] of poly) {
+    const take = ([x, y]: Pt) => {
       lo = [Math.min(lo[0], x), Math.min(lo[1], y)];
       hi = [Math.max(hi[0], x), Math.max(hi[1], y)];
-    }
+    };
+    for (const s of shapes) for (const poly of s.polygons) poly.forEach(take);
+    for (const h of houses) h.corners.forEach(take);
     if (!Number.isFinite(lo[0])) return { lo: [-200, -150] as Pt, hi: [200, 150] as Pt };
     return { lo, hi };
-  }, [shapes]);
+  }, [shapes, houses]);
 
   const fitted = (): View => {
     const w = bounds.hi[0] - bounds.lo[0] + 80;
     const h = bounds.hi[1] - bounds.lo[1] + 80;
     return { cx: (bounds.lo[0] + bounds.hi[0]) / 2, cy: (bounds.lo[1] + bounds.hi[1]) / 2, scale: Math.max(w / size[0], h / size[1], 0.2) };
   };
-  // fit when the plan first gets pieces or the box grows beyond the view
+  // fit again when the plan gets its first pieces
   const fitKey = `${shapes.length === 0}`;
   useEffect(() => setView(null), [fitKey]);
   const v = view ?? fitted();
@@ -109,13 +119,9 @@ export function PlanView(props: Props) {
     setView({ cx: wx - (wx - v.cx) * (scale / v.scale), cy: wy - (wy - v.cy) * (scale / v.scale), scale });
   };
 
-  const startPan = (e: ReactPointerEvent) => {
-    drag.current = { kind: "pan", x: e.clientX, y: e.clientY, moved: false };
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-  };
-  const startPiece = (e: ReactPointerEvent, piece: string) => {
-    e.stopPropagation();
-    drag.current = { kind: "piece", x: e.clientX, y: e.clientY, piece, moved: false };
+  const start = (e: ReactPointerEvent, kind: Drag["kind"], id?: string) => {
+    if (kind !== "pan") e.stopPropagation();
+    drag.current = { kind, x: e.clientX, y: e.clientY, ...(id ? { id } : {}), moved: false };
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   };
   const onMove = (e: ReactPointerEvent) => {
@@ -126,9 +132,10 @@ export function PlanView(props: Props) {
     if (!d.moved && Math.hypot(dx, dy) < 4) return;
     if (d.kind === "pan") {
       setView({ ...v, cx: v.cx - dx * v.scale, cy: v.cy + dy * v.scale });
-    } else if (d.piece && interactive) {
-      if (!d.moved) props.onDragStart(d.piece);
-      props.onDrag(d.piece, dx * v.scale, -dy * v.scale);
+    } else if (d.id && interactive) {
+      if (!d.moved) props.onDragStart();
+      if (d.kind === "piece") props.onDrag(d.id, dx * v.scale, -dy * v.scale);
+      else props.onDragBuilding(d.id, dx * v.scale, -dy * v.scale);
     }
     d.moved = true;
     d.x = e.clientX;
@@ -139,27 +146,53 @@ export function PlanView(props: Props) {
     drag.current = null;
     if (!d || d.moved) return;
     if (d.kind === "pan") props.onSelectPiece(undefined);
-    else if (d.piece) props.onSelectPiece(d.piece);
+    else if (d.kind === "piece" && d.id) props.onSelectPiece(d.id);
+    else if (d.kind === "building" && d.id) props.onSelectBuilding(d.id);
   };
 
   const viewBox = `${v.cx - (size[0] / 2) * v.scale} ${-v.cy - (size[1] / 2) * v.scale} ${size[0] * v.scale} ${size[1] * v.scale}`;
   const flip = (p: Pt) => `${p[0]},${-p[1]}`;
   const overlapping = new Set(analysis.overlapping);
-  const floating = new Set(analysis.floating);
   const portR = PEG_HEAD_DIAMETER / 2;
 
   return (
     <div ref={host} className="plan" data-testid="plan" onWheel={onWheel}>
-      <svg viewBox={viewBox} width={size[0]} height={size[1]} onPointerDown={startPan} onPointerMove={onMove} onPointerUp={onUp} role="img" aria-label={tr("plan.caption")}>
+      <svg viewBox={viewBox} width={size[0]} height={size[1]} onPointerDown={(e) => start(e, "pan")} onPointerMove={onMove} onPointerUp={onUp} role="img" aria-label={tr("plan.caption")}>
+        {houses.map(({ b, corners }) => (
+          <g
+            key={b.id}
+            className={`building${selection.building === b.id ? " selected" : ""}`}
+            onPointerDown={(e) => start(e, "building", b.id)}
+            onPointerMove={onMove}
+            onPointerUp={onUp}
+          >
+            <polygon points={corners.map(flip).join(" ")} style={{ fill: b.colors.walls }} vectorEffect="non-scaling-stroke" />
+            <text x={b.x} y={-b.y} fontSize={Math.max(8, Math.min(b.width, b.length) / 4)} textAnchor="middle" dominantBaseline="middle">
+              {buildingName(b)}
+            </text>
+          </g>
+        ))}
+        {pillars.map((s, i) => {
+          const corners: Pt[] = [
+            [-SUPPORT_LENGTH / 2, -TRACK_WIDTH / 2 - 3],
+            [SUPPORT_LENGTH / 2, -TRACK_WIDTH / 2 - 3],
+            [SUPPORT_LENGTH / 2, TRACK_WIDTH / 2 + 3],
+            [-SUPPORT_LENGTH / 2, TRACK_WIDTH / 2 + 3],
+          ].map(([x, y]) => {
+            const [rx, ry] = rotate(x as number, y as number, s.heading);
+            return [rx + s.x, ry + s.y] as Pt;
+          });
+          return <polygon key={`s${i}`} className="support" points={corners.map(flip).join(" ")} vectorEffect="non-scaling-stroke" />;
+        })}
         {shapes
           .slice()
           .sort((a, b) => a.z - b.z)
           .map((s) => {
             const selected = selection.piece === s.piece.id;
             const marked = props.highlightElement === s.type.id;
-            const problem = overlapping.has(s.piece.id) ? "overlap" : floating.has(s.piece.id) ? "floating" : "";
+            const problem = overlapping.has(s.piece.id) ? "overlap" : "";
             return (
-              <g key={s.piece.id} className={`piece${selected ? " selected" : ""}${marked ? " marked" : ""} ${problem}`} onPointerDown={(e) => startPiece(e, s.piece.id)} onPointerMove={onMove} onPointerUp={onUp}>
+              <g key={s.piece.id} className={`piece${selected ? " selected" : ""}${marked ? " marked" : ""}${s.z > 0.5 ? " raised" : ""} ${problem}`} onPointerDown={(e) => start(e, "piece", s.piece.id)} onPointerMove={onMove} onPointerUp={onUp}>
                 {s.polygons.map((poly, i) => (
                   <polygon key={i} points={poly.map(flip).join(" ")} style={{ fill: s.type.color }} vectorEffect="non-scaling-stroke" />
                 ))}
@@ -181,9 +214,8 @@ export function PlanView(props: Props) {
             <g
               key={`${p.piece}:${p.index}`}
               className={`port ${p.gender}${isTarget ? " target" : ""}`}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-              }}
+              data-testid="open-end"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 props.onSelectPort(p.piece, p.index);
@@ -194,7 +226,7 @@ export function PlanView(props: Props) {
           );
         })}
       </svg>
-      {shapes.length === 0 && <p className="plan-empty">{tr("plan.empty")}</p>}
+      {shapes.length === 0 && houses.length === 0 && <p className="plan-empty">{tr("plan.empty")}</p>}
     </div>
   );
 }

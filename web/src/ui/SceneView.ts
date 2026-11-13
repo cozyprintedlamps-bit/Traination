@@ -30,6 +30,8 @@ export interface ScenePart {
   rotation: number;
   /** drawn lighter: a highlight */
   highlight?: boolean;
+  /** below 1: see-through (to look inside a body) */
+  opacity?: number;
 }
 
 const CREASE_ANGLE = (35 * Math.PI) / 180;
@@ -108,7 +110,8 @@ export class SceneView {
     for (const part of parts) {
       const color = new Color(part.color);
       if (part.highlight) color.lerp(new Color(0x4f7cff), 0.45);
-      const material = new MeshStandardMaterial({ color, roughness: 0.6, metalness: 0 });
+      const seeThrough = part.opacity !== undefined && part.opacity < 1;
+      const material = new MeshStandardMaterial({ color, roughness: 0.6, metalness: 0, transparent: seeThrough, opacity: part.opacity ?? 1, depthWrite: !seeThrough });
       const mesh = new Mesh(this.geometryOf(part.mesh), material);
       mesh.position.set(part.x, part.y, part.z);
       mesh.rotation.z = (part.rotation * Math.PI) / 180;

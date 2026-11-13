@@ -1,7 +1,9 @@
 // Step 2: the kinds of pieces and their parameters, plus the track settings.
 import { useState } from "react";
 import { useAppState, useStore } from "../app/context";
-import { ELEMENT_KINDS, elementShape, outline } from "../core/track";
+import { ELEMENT_KINDS, elementShape, outline, takesStuds } from "../core/track";
+import { LEDGE_ROWS_MAX, STUD_KINDS } from "../presets/bricks";
+import type { StudKind } from "../presets/bricks";
 import type { ElementKind, ElementType } from "../core/track";
 import { printerById } from "../presets/print";
 import { PEG_REACH } from "../presets/gauge";
@@ -95,6 +97,29 @@ export function ElementsPage() {
               <Choice value={t.adapter} options={[{ value: "male", label: tr("gender.male") }, { value: "female", label: tr("gender.female") }]} onChange={(adapter) => set({ adapter })} />
             </Field>
           )}
+          {takesStuds(t.kind) ? (
+            <>
+              <h4 className="subhead">{tr("studs.title")}</h4>
+              <Field label={tr("studs.kind")}>
+                <Choice<StudKind> value={t.studs} options={STUD_KINDS.map((k) => ({ value: k, label: tr(`studs.${k}` as TextKey) }))} onChange={(studs) => set({ studs })} />
+              </Field>
+              {t.studs !== "none" && (
+                <>
+                  <Field label={tr("studs.side")}>
+                    <Choice
+                      value={t.studSide}
+                      options={(["left", "right", "both"] as const).map((s) => ({ value: s, label: tr(`side.${s}` as TextKey) }))}
+                      onChange={(studSide) => set({ studSide })}
+                    />
+                  </Field>
+                  <Field label={tr("studs.rows")}>
+                    <Choice value={t.studRows} options={Array.from({ length: LEDGE_ROWS_MAX }, (_, i) => ({ value: i + 1, label: String(i + 1) }))} onChange={(studRows) => set({ studRows })} />
+                  </Field>
+                </>
+              )}
+              <p className="muted small">{tr("studs.hint")}</p>
+            </>
+          ) : null}
           <ColorPicker label={tr("design.colors")} value={t.color} onChange={(color) => set({ color })} />
           {tooBig && size && <Notice kind="warning">{tr("el.too_big", { size: `${formatNumber(size[0], 0)} × ${formatNumber(size[1], 0)}` })}</Notice>}
           <div className="row">

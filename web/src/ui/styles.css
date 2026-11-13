@@ -86,6 +86,7 @@ h2, h3, h4 { margin: 0; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .section-head h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 650; }
 .subhead { font-size: 13px; font-weight: 600; margin-top: 4px; }
+.intro { margin-bottom: 14px; }
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
 .strong { font-weight: 600; margin: 0; }
@@ -161,6 +162,26 @@ select.input { padding-right: 6px; }
 .card-text { display: flex; flex-direction: column; min-width: 0; }
 .card-actions { display: flex; }
 
+/* palettes of vehicles and buildings: tiles that can be dragged */
+.vehicle-grid, .building-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+.tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: var(--radius-c); border: 1px solid transparent; background: var(--surface-2); cursor: grab; font-size: 12px; line-height: 1.2; text-align: center; color: var(--ink); }
+.tile:hover { border-color: var(--accent); }
+.tile:active { cursor: grabbing; }
+.tile svg { color: var(--ink); }
+.train-list { min-height: 48px; border-radius: var(--radius-c); }
+.card.drop-before { box-shadow: 0 -3px 0 0 var(--accent); }
+.card.drop-after { box-shadow: 0 3px 0 0 var(--accent); }
+.drop-zone { padding: 12px; border: 2px dashed var(--accent); border-radius: var(--radius-c); text-align: center; color: var(--accent); }
+.grip { color: var(--muted); cursor: grab; font-size: 12px; letter-spacing: -2px; user-select: none; }
+.segmented { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface-2); }
+.seg { height: 26px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.seg.selected { background: var(--accent); color: var(--accent-ink); }
+.facts { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.color-group { display: flex; flex-direction: column; gap: 6px; padding-bottom: 6px; border-bottom: 1px dashed var(--line); }
+.color-group:last-child { border-bottom: 0; }
+
 .parts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .parts li { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: center; }
 .parts .count { font-variant-numeric: tabular-nums; text-align: right; }
@@ -185,6 +206,11 @@ select.input { padding-right: 6px; }
 .plan .port.female circle { fill: var(--plan-bg); }
 .plan .port.target circle { stroke: var(--accent); stroke-width: 3.5; filter: drop-shadow(0 0 4px var(--accent)); }
 .plan .bad-joint { fill: none; stroke: var(--error); stroke-width: 3; }
+.plan .piece.raised polygon { stroke: rgba(0, 0, 0, 0.6); stroke-width: 1.5; }
+.plan .support { fill: rgba(120, 128, 140, 0.55); stroke: rgba(0, 0, 0, 0.4); stroke-width: 1; pointer-events: none; }
+.plan .building polygon { stroke: rgba(0, 0, 0, 0.45); stroke-width: 1.2; cursor: move; opacity: 0.85; }
+.plan .building.selected polygon { stroke: var(--accent); stroke-width: 3; opacity: 1; }
+.plan .building text { fill: #1a2233; font-family: var(--font-ui); pointer-events: none; }
 .plan-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); padding: 20px; text-align: center; }
 
 /* ------------------------------------------------------------------ layout: wide screens */

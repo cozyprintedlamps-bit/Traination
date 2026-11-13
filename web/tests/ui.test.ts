@@ -4,7 +4,9 @@ import { Store } from "../src/app/store";
 import { analyze } from "../src/core/layout";
 import { newProject } from "../src/core/project";
 import { ELEMENT_KINDS } from "../src/core/track";
-import { COUPLERS, VEHICLE_KINDS } from "../src/core/vehicle";
+import { CATEGORIES, COLOR_SLOTS, COUPLERS, DECORS, VEHICLE_KINDS } from "../src/core/vehicle";
+import { BUILDING_KINDS } from "../src/core/buildings";
+import { STUD_KINDS } from "../src/presets/bricks";
 import { STEPS } from "../src/app/store";
 import { TEMPLATES } from "../src/core/project";
 import { DE } from "../src/ui/texts_de";
@@ -23,7 +25,13 @@ describe("texts", () => {
       ...COUPLERS.map((c) => `coupler.${c}`),
       ...STEPS.flatMap((s) => [`step.${s}`, `page.${s}`]),
       ...TEMPLATES.map((t) => `template.${t}`),
-      ...["chassis", "body", "accent", "wheel", "axle"].map((p) => `part.${p}`),
+      ...["chassis", "body", "roof", "details", "load", "decor", "wheel", "axle", "worm", "wormWheel", "support", "base"].map((p) => `part.${p}`),
+      ...COLOR_SLOTS.map((s) => `color.${s}`),
+      ...CATEGORIES.map((c) => `cat.${c}`),
+      ...BUILDING_KINDS.map((k) => `bkind.${k}`),
+      ...DECORS.map((d) => `decor.${d}`),
+      ...STUD_KINDS.map((k) => `studs.${k}`),
+      ...["no_pair", "height", "angle", "no_route"].map((c) => `close.${c}`),
       ...["not_json", "not_project", "too_new"].map((c) => `file.${c}`),
     ];
     for (const key of keys) expect(Object.keys(DE), key).toContain(key);

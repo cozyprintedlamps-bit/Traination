@@ -16,6 +16,7 @@ beforeAll(async () => {
 const names: Names = {
   element: (t, v) => `${t.id}${v.mirror ? "-m" : ""}${v.swap ? "-s" : ""}`,
   vehicle: (v, i) => `${v.kind}${i + 1}`,
+  building: (b, i) => `${b.kind}${i + 1}`,
   part: (p) => p,
 };
 

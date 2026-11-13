@@ -6,10 +6,13 @@ import { analyze, attach, nextPort } from "./layout";
 import type { Layout, Piece } from "./layout";
 import { PLAIN, ELEMENT_KINDS, makeElement, newId, standardElements } from "./track";
 import type { ElementType } from "./track";
-import { COUPLERS, DEFAULT_DESIGN, DEFAULT_FITS, VEHICLE_KINDS, makeVehicle } from "./vehicle";
-import type { Fits, Vehicle } from "./vehicle";
+import { BUILDING_KINDS, SHED_OPENING, makeBuilding } from "./buildings";
+import type { Building } from "./buildings";
+import { COUPLERS, DECORS, DEFAULT_DESIGN, DEFAULT_FITS, VEHICLE_KINDS, makeVehicle } from "./vehicle";
+import type { Fits, Vehicle, VehicleColors } from "./vehicle";
 
-export const SCHEMA_VERSION = 1;
+/** 2: buildings, seven colour slots per vehicle (was: accent), design with decoration. */
+export const SCHEMA_VERSION = 2;
 export const FILE_EXTENSION = ".trproj";
 
 export interface Settings {
@@ -28,6 +31,7 @@ export interface Project {
   elements: ElementType[];
   layout: Layout;
   vehicles: Vehicle[];
+  buildings: Building[];
   settings: Settings;
 }
 
@@ -118,15 +122,23 @@ export function newProject(template: TemplateId = "oval"): Project {
     elements,
     layout: templateLayout(template, elements),
     vehicles: [makeVehicle("steam"), makeVehicle("tender"), makeVehicle("box"), makeVehicle("passenger")],
+    buildings: template === "empty" ? [] : defaultBuildings(),
     settings: structuredClone(DEFAULT_SETTINGS),
   };
+}
+
+/** A station beside the first straight of the templates (inside the loop, facing the track) and a signal. */
+export function defaultBuildings(): Building[] {
+  return [makeBuilding("station", { x: 72, y: 56, rotation: 180 }), makeBuilding("signal", { x: 170, y: -36, rotation: 0 })];
 }
 
 /** Headroom above the track top under the lowest bridge of the plan, for the height check of vehicles. */
 export function clearance(project: Project): number {
   const used = new Set(project.layout.pieces.map((p) => p.type));
   const bridges = project.elements.filter((e) => e.kind === "bridge" && used.has(e.id)).map((e) => e.height);
-  return Math.min(BRIDGE_HEIGHT, ...bridges) - BRIDGE_DECK - TRACK_HEIGHT;
+  const underBridge = Math.min(BRIDGE_HEIGHT, ...bridges) - BRIDGE_DECK - TRACK_HEIGHT;
+  const sheds = (project.buildings ?? []).some((b) => b.kind === "shed");
+  return sheds ? Math.min(underBridge, SHED_OPENING.height - TRACK_HEIGHT) : underBridge;
 }
 
 // ------------------------------------------------------------------------------ files
@@ -158,17 +170,30 @@ export function deserialize(text: string): Project {
         .filter((v) => VEHICLE_KINDS.includes(v?.kind))
         .map((v) => {
           const d = makeVehicle(v.kind);
+          // schema 1 had one "accent" colour for roof and details
+          const old = (v.colors ?? {}) as Partial<VehicleColors> & { accent?: string };
+          const accent = old.accent ? { roof: old.accent, details: old.accent } : {};
+          const { accent: _drop, ...colors } = old;
+          void _drop;
+          const design = { ...DEFAULT_DESIGN, ...v.design };
+          if (!DECORS.includes(design.decor)) design.decor = "none";
           return {
             ...d,
             ...v,
             front: COUPLERS.includes(v.front) ? v.front : d.front,
             rear: COUPLERS.includes(v.rear) ? v.rear : d.rear,
-            design: { ...DEFAULT_DESIGN, ...v.design },
-            colors: { ...d.colors, ...v.colors },
+            design,
+            colors: { ...d.colors, ...accent, ...colors },
             magnet: { ...d.magnet, ...v.magnet },
           };
         })
     : base.vehicles;
+  const buildings = Array.isArray(raw.buildings)
+    ? raw.buildings.filter((b) => BUILDING_KINDS.includes(b?.kind)).map((b) => {
+        const d = makeBuilding(b.kind);
+        return { ...d, ...b, colors: { ...d.colors, ...b.colors } };
+      })
+    : [];
   const pieces = Array.isArray(raw.layout?.pieces) ? raw.layout.pieces.filter((p) => typeof p?.id === "string" && typeof p.type === "string") : [];
   return {
     schema: SCHEMA_VERSION,
@@ -176,6 +201,7 @@ export function deserialize(text: string): Project {
     elements,
     layout: { pieces: pieces.map((p) => ({ ...p, variant: { ...PLAIN, ...p.variant }, port: p.port ?? 0 })) },
     vehicles,
+    buildings,
     settings: { ...DEFAULT_SETTINGS, ...raw.settings, fits: { ...DEFAULT_FITS, ...raw.settings?.fits } },
   };
 }

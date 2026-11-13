@@ -3,7 +3,16 @@
 Web-Tool zum Planen, Konfigurieren und Exportieren 3D-druckbarer **Holzbahn-Teile**: Schienen-Elemente und Züge, kompatibel mit den gängigen Holzeisenbahnen (Brio, IKEA Lillabo und ähnliche).
 Export als **3MF** für Bambu Studio / Orca Slicer. Aufbau und Konventionen folgen der Web-App von TactileManufactory (Repo `../TactileFactory`, siehe dessen `CLAUDE.md` und `web/`).
 
-> Status (13.11.2026, Branch `feature/erste-version`): Erste vollständige Version in `web/` (siehe `web/README.md`, ADR `docs/decisions/0001-web-app-und-modell.md`). Wizard in fünf Schritten: **Strecke** (Vorlagen Oval, Abstellgleis, Mit Brücke, Leer; Anbauen an freie Enden mit Links/Rechts; Plan als SVG mit Ziehen, Zoom und Problemanzeige), **Elemente** (9 Arten: Gerade, Kurve, Weiche, Y-Weiche, Kreuzung, Rampe, Brücke, Prellbock, Adapter; frei parametrisch), **Züge** (9 Bauarten: Dampflok, Diesellok, E-Lok, Tender, Güter-, Kessel-, Flach-, Personen- und Schüttgutwagen; Länge, 2 oder 3 Achsen, Kupplung je Ende), **Design** (Fenster, Schornstein, Dom, Dach, Ladung, Höhe, vier Farben aus der Bambu-Palette), **Export** (Drucker, Passungen, Stückliste, 3MF für Strecke und Züge, Montageanleitung). Der Zug steht in der 3D-Vorschau auf der Strecke. Dazu Projektdateien `.trproj`, Autosave, Rückgängig/Wiederholen, Deutsch/Englisch, Hell/Dunkel, Handy-Layout. 61 Unit-Tests und 4 Browser-Tests. **Noch nicht** geprüft: Maße an echten Schienen, Testdrucke, Öffnen der 3MF in Bambu Studio.
+> Status (13.11.2026): Die erste Version ist in `main` (ADR 0001). Der Ausbau liegt auf Branch `feature/ausbau` (ADR 0002). Der Wizard hat sechs Schritte:
+>
+> 1. **Strecke:** Vorlagen; Anbauen an freie Enden; „Strecke schließen“ mit Passstück und Adapter; automatische Stützen; Bahnhöfe und Gebäude im Plan.
+> 2. **Elemente:** 9 Arten, dazu Noppenleisten (LEGO-/DUPLO-kompatibel).
+> 3. **Züge:** 4 Kategorien mit 21 Bauarten, darunter die CyberBrick-E-Lok mit Schneckenantrieb. Fahrzeuge werden per Drag & Drop in den Zug gezogen; Ansicht „Ganzer Zug“.
+> 4. **Design:** Muster, Name/Nummer, Gesicht, Lampen, Puffer, Schienenräumer; 7 Farbbereiche; Teile getrennt drucken und stecken oder mehrfarbig in einem Teil.
+> 5. **Übersicht:** Kennzahlen und Filament je Farbe.
+> 6. **Export:** 3MF für Strecke mit Stützen, für Züge und für Gebäude.
+>
+> 121 Unit-Tests und 6 Browser-Tests. **Noch nicht geprüft:** Maße an echten Schienen und CyberBrick-Teilen, Testdrucke, Öffnen der 3MF in Bambu Studio.
 
 ## Ziele & Randbedingungen
 - **Web-App, die Berechnung läuft im Browser des Nutzers** (kein Rechen-Server). Geometrie mit **manifold-3d**, Oberfläche in **React**, wie TactileManufactory (dort ADR 0004).
@@ -19,9 +28,13 @@ Export als **3MF** für Bambu Studio / Orca Slicer. Aufbau und Konventionen folg
 - **Fahrzeug**: Lok oder Waggon, aufgebaut aus **Chassis**, **Aufbau** (Design), **Radsätzen** und **Kupplungen**.
 - **Radsatz**: zwei Räder auf einer Achse, beides gedruckt.
 - **Kupplung**: Verbindung zwischen Fahrzeugen, **magnetisch** oder als **Anhängekupplung** (Haken und Öse).
+- **Abschnitt**: farbiger Teil eines Aufbaus (Dach, Details, Ladung, Muster). Mit **Befestigung** (flache Unterseite, Zapfenplätze) kann er getrennt gedruckt und gesteckt werden.
+- **Passstück**: Gerade in genau der Länge, die „Strecke schließen“ für eine Lücke braucht.
+- **Stütze**: Pfeiler unter erhöhter flacher Strecke, automatisch an Stößen und unter langen Stücken.
+- **Noppenleiste**: Leiste neben dem Gleis mit LEGO- oder DUPLO-kompatiblen Noppen.
 
 ## Fachregeln (Entwurf)
-1. **Wizard-Reihenfolge**: Strecke → Elemente → Fahrzeuge → Design/Farben → Export. Strukturbaum und 3D-Vorschau begleiten jeden Schritt.
+1. **Wizard-Reihenfolge**: Strecke → Elemente → Züge → Design/Farben → Übersicht → Export. Die 3D-Vorschau begleitet jeden Schritt, der Plan die Schritte Strecke, Elemente, Übersicht und Export.
 2. **Spurweite**: Alle Maße der Schiene sind **benannte Konstanten** in `presets/` und für alle Elemente gleich. Rillenbreite, -tiefe und -abstand sind nicht frei einstellbar, damit die Kompatibilität bleibt. Einstellbar sind nur die **Passungen**.
 3. **Verbinder**: Jedes Ende hat Zapfen oder Buchse. Die Buchse ist um die einstellbare **Verbinder-Passung** größer als der Zapfen. Adapter-Elemente (Zapfen-Zapfen, Buchse-Buchse) lösen Richtungsprobleme im Layout.
 4. **Elemente** sind parametrisch: Gerade (Länge), Kurve (Radius, Winkel), Weiche (links/rechts/Y, Radius), Kreuzung, Rampe (Höhe, Länge), Prellbock. Optional **beidseitig nutzbar** (Rillen oben und unten).
@@ -50,13 +63,16 @@ Richtwerte für Brio-kompatible Schienen. Vor dem ersten Testdruck mit dem Messs
 ## Architektur
 ```
 web/src/
-  presets/    gauge.ts (Spurweite, Verbinder, Standardstücke), vehicle.ts (Räder, Achsen, Kupplungen, Magnete), print.ts (Passungen, Drucker)
-  core/       track.ts (Elemente: Pfade + Anschlüsse, Varianten), layout.ts (Plan als Baum, Kreisschluss, Überlappung, Stückliste),
-              vehicle.ts (Fahrzeuge, abgeleitete Maße, Prüfungen), project.ts (Projekt, Vorlagen, .trproj), route.ts (Zug auf der Strecke)
-  geometry/   track.ts (Profil-Sweep, Rillen, Zapfen/Buchsen, Rampen, Brücke, Prellbock), vehicle.ts (Fahrgestell, Kupplungen, Aufbauten, Räder, Achsen), engine.ts
-  export/     bambu3mf.ts (aus TactileManufactory), plates.ts (Druckbetten, Dateien à 4 Platten), printItems.ts
-  app/        store.ts (Zustand, Rückgängig, Autosave), engine.worker.ts, engineClient.ts (Cache)
-  ui/         App, Seiten je Schritt, PlanView (SVG), SceneView/Viewer3D (three.js), texts_de/texts_en, styles.css
+  presets/    gauge.ts (Spurweite, Verbinder, Standardstücke, Stützen), vehicle.ts (Räder, Achsen, Kupplungen, Magnete), print.ts (Passungen, Drucker),
+              bricks.ts (LEGO/DUPLO-Raster), cyberbrick.ts (Elektronik, Motor, Getriebe)
+  core/       track.ts (Elemente: Pfade + Anschlüsse, Varianten, Noppenleisten), layout.ts (Plan als Baum, Kreisschluss, Überlappung, Stückliste),
+              autoclose.ts (Strecke schließen), supports.ts (Stützen), buildings.ts (Gebäude),
+              vehicle.ts (Kategorien, Bauarten, Farben, Gestaltung, Maße, Prüfungen), project.ts (Projekt, Vorlagen, .trproj Schema 2), route.ts (Zug auf der Strecke)
+  geometry/   track.ts (Profil-Sweep, Rillen, Zapfen/Buchsen, Rampen, Brücke, Prellbock, Noppen, Stützen), vehicle.ts (Fahrgestell, Kupplungen, Aufbauten mit Abschnitten),
+              decor.ts + text.ts (Muster, Strichschrift, Gesicht), gears.ts (Schnecke, Schneckenrad), cyberbrick.ts, buildings.ts, engine.ts
+  export/     bambu3mf.ts (aus TactileManufactory), plates.ts (Druckbetten, Dateien à 4 Platten), printItems.ts (Strecke + Stützen, Fahrzeuge, Gebäude)
+  app/        store.ts (Zustand, Rückgängig, Autosave, Gebäude, Strecke schließen, Drag & Drop), engine.worker.ts, engineClient.ts (Cache)
+  ui/         App, Seiten je Schritt (Track, Elements, Vehicles, Design, Overview, Export), PlanView (SVG), SceneView/Viewer3D (three.js), texts_de/texts_en, styles.css
 web/tests/    Unit-Tests; e2e/ Browser-Tests; render.test.ts = Bilder ohne Browser (`npm run render`)
 docs/         decisions/ (ADRs)
 ```
@@ -109,6 +125,9 @@ Geklärt: Räder und Achsen werden selbst gedruckt. Kupplungen gibt es magnetisc
 - **Magnetkupplung (umgesetzt, Testdruck offen):** Standard Ø 8 × 3 mm, Mitte 7 mm über Unterkante Fahrgestell, Polung vorn Nord / hinten Süd nach außen (Hinweis im Tool, keine Markierung am Teil). Brio-Höhe und -Polung nachmessen.
 - **Rampen:** 2 × 38 mm auf 216 mm ist steil (Smoothstep, größte Steigung ≈ 26 %). Mit echten Zügen probieren, ggf. längere Rampen als Standard.
 - **Anhängekupplung:** eigene Form oder kompatibel zu den Haken älterer Holzbahnen?
+- **Noppen (umgesetzt, Testdruck offen):** Klemmkraft der gedruckten LEGO-/DUPLO-Noppen prüfen (`presets/bricks.ts`, `STUD_FIT`).
+- **CyberBrick (umgesetzt, nachmessen):** Lochabstände der Empfänger-Platine, Akkumaße, Höhe von Platine und USB-Buchse, Lage des Schalters (`presets/cyberbrick.ts`). Das Schneckengetriebe (Modul 1, 15:1) per Testdruck prüfen.
+- **Getrennte Teile (umgesetzt, Testdruck offen):** Zapfen Ø 3 mm mit 0,15 mm Spiel für Dach, Schornstein, Dom, Ladung und Gebäudedächer.
 - **Zieldrucker:** P1S/X1C, A1 und A1 mini sind wählbar. Die Profilnamen für A1/A1 mini (`export/bambuProfiles.ts`) sind noch nicht mit Bambu Studio geprüft.
 - **3MF in Bambu Studio:** Der Writer ist aus TactileManufactory übernommen und dort geprüft. Mit Traination-Teilen (viele Objekte, Volumen für Details) einmal in Bambu Studio öffnen.
 - **Verhältnis zu TactileManufactory:** eigenes Produkt oder später als weiterer Gerätetyp in derselben App? Gemeinsame Teile (3MF-Writer, Magnetkatalog, UI-Bausteine) ggf. als geteiltes Paket.
