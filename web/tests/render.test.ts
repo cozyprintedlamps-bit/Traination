@@ -10,7 +10,11 @@ import { newProject } from "../src/core/project";
 import type { TemplateId } from "../src/core/project";
 import { route, trainPoses } from "../src/core/route";
 import { PLAIN, standardElements } from "../src/core/track";
-import { DEFAULT_FITS, VEHICLE_KINDS, chassisSizes, makeVehicle } from "../src/core/vehicle";
+import { CATEGORIES, DEFAULT_FITS, KINDS_BY_CATEGORY, chassisSizes, makeVehicle } from "../src/core/vehicle";
+import type { Vehicle } from "../src/core/vehicle";
+import { BUILDING_KINDS, makeBuilding } from "../src/core/buildings";
+import type { Building } from "../src/core/buildings";
+import { supports } from "../src/core/supports";
 import { createEngine } from "../src/geometry/engine";
 import type { Engine } from "../src/geometry/engine";
 import { TRACK_HEIGHT } from "../src/presets/gauge";
@@ -151,6 +155,19 @@ function render(name: string, items: Item[], yaw: number, pitch: number, W = 140
 
 const hex = (h: string): RGB => [1, 3, 5].map((i) => Math.max(parseInt(h.slice(i, i + 2), 16), 40)) as RGB;
 
+/** A vehicle in place: all its parts with their colours. */
+function vehicleItems(engine: Engine, v: Vehicle, pose: { x: number; y: number; z: number; rotation: number }): Item[] {
+  const m = engine.vehicle(v, DEFAULT_FITS);
+  const s = chassisSizes(v);
+  const at = (part: PartMesh, color: string, dz: number): Item => ({ part, x: pose.x, y: pose.y, z: pose.z + dz, rotation: pose.rotation, color: hex(color) });
+  return [
+    at(m.chassis, v.colors.chassis, 0),
+    at(m.running, v.colors.wheels, 0),
+    at(m.body, v.colors.body, s.deckTop),
+    ...m.parts.map((p) => at(p.mesh, v.colors[p.slot], s.deckTop)),
+  ];
+}
+
 function layoutItems(engine: Engine, template: TemplateId): Item[] {
   const project = newProject(template);
   const analysis = analyze(project.layout, project.elements);
@@ -163,18 +180,20 @@ function layoutItems(engine: Engine, template: TemplateId): Item[] {
     if (!type || !pose) continue;
     items.push({ part: engine.element(type, piece.variant, options), x: pose.x, y: pose.y, z: pose.z, rotation: pose.rotation, color: hex(type.color) });
   }
+  for (const s of supports(project.layout, project.elements, analysis)) items.push({ part: engine.support(s.height, s.plain), x: s.x, y: s.y, z: 0, rotation: s.heading, color: hex("#8E9089") });
+  for (const b of project.buildings) items.push(...buildingItems(engine, b));
   const poses = trainPoses(route(project.layout, project.elements, analysis), project.vehicles.map((v) => v.length));
   project.vehicles.forEach((v, i) => {
     const pose = poses[i];
-    if (!pose) return;
-    const m = engine.vehicle(v, DEFAULT_FITS);
-    const s = chassisSizes(v);
-    const z = pose.z + TRACK_HEIGHT + TRACK_CLEARANCE;
-    const at = (part: PartMesh, color: string, dz: number): Item => ({ part, x: pose.x, y: pose.y, z: z + dz, rotation: pose.rotation, color: hex(color) });
-    items.push(at(m.chassis, v.colors.chassis, 0), at(m.running, v.colors.wheels, 0), at(m.body, v.colors.body, s.deckTop));
-    if (m.accent) items.push(at(m.accent, v.colors.accent, s.deckTop));
+    if (pose) items.push(...vehicleItems(engine, v, { ...pose, z: pose.z + TRACK_HEIGHT + TRACK_CLEARANCE }));
   });
   return items;
+}
+
+function buildingItems(engine: Engine, b: Building): Item[] {
+  const m = engine.building(b);
+  const at = (part: PartMesh, color: string): Item => ({ part, x: b.x, y: b.y, z: 0, rotation: b.rotation, color: hex(color) });
+  return [at(m.base, b.colors.walls), ...(m.roof ? [at(m.roof, b.colors.roof)] : []), ...(m.details ? [at(m.details, b.colors.details)] : [])];
 }
 
 it.skipIf(!process.env.TRAINATION_RENDER)(
@@ -186,19 +205,22 @@ it.skipIf(!process.env.TRAINATION_RENDER)(
     const wood = hex("#E4BD68");
     const elements = standardElements();
     render("elements", elements.map((e, i) => ({ part: engine.element(e, PLAIN, opts), x: (i % 5) * 300, y: -Math.floor(i / 5) * 300, z: 0, color: wood })), -0.5, 0.75);
-    render("vehicles", VEHICLE_KINDS.flatMap((k, i) => {
-      const v = makeVehicle(k, k === "box" ? { front: "hook", rear: "eye" } : {});
-      const m = engine.vehicle(v, DEFAULT_FITS);
-      const deck = chassisSizes(v).deckTop;
-      const x = (i % 3) * 220;
-      const y = -Math.floor(i / 3) * 90;
-      return [
-        { part: m.chassis, x, y, z: 0, color: hex(v.colors.chassis) },
-        { part: m.body, x, y, z: deck, color: hex(v.colors.body) },
-        ...(m.accent ? [{ part: m.accent, x, y, z: deck, color: hex(v.colors.accent) }] : []),
-        { part: m.running, x, y, z: 0, color: hex(v.colors.wheels) },
-      ];
-    }), -0.55, 0.45);
+    for (const category of CATEGORIES) {
+      render(`vehicles-${category}`, KINDS_BY_CATEGORY[category].flatMap((k, i) => {
+        const v = makeVehicle(k, k === "box" ? { front: "hook", rear: "eye" } : {});
+        v.design = { ...v.design, split: i % 2 === 0, decor: (["stripe", "stars", "dots", "hearts", "rivets"] as const)[i % 5] ?? "none", lettering: i % 2 ? "" : "TRAIN", face: i === 0 };
+        return vehicleItems(engine, v, { x: (i % 3) * 220, y: -Math.floor(i / 3) * 90, z: 0, rotation: 0 });
+      }), -0.55, 0.45);
+    }
+    render("cyberbrick", vehicleItems(engine, makeVehicle("cyberbrick"), { x: 0, y: 0, z: 0, rotation: 0 }), -0.6, 0.4, 1000, 700);
+    const cb = makeVehicle("cyberbrick");
+    const cm = engine.vehicle(cb, DEFAULT_FITS);
+    render("cyberbrick-inside", [
+      { part: cm.chassis, x: 0, y: 0, z: 0, color: [120, 120, 120] },
+      { part: cm.running, x: 0, y: 0, z: 0, color: [40, 40, 40] },
+      ...(cm.inside ? [{ part: cm.inside, x: 0, y: 0, z: 0, color: [40, 120, 200] as RGB }] : []),
+    ], -0.6, 0.5, 1000, 700);
+    render("buildings", BUILDING_KINDS.flatMap((k, i) => buildingItems(engine, { ...makeBuilding(k), name: "BAHNHOF", x: (i % 4) * 260, y: -Math.floor(i / 4) * 160 })), -0.5, 0.6);
     for (const template of ["oval", "siding", "hill"] as const) render(`layout-${template}`, layoutItems(engine, template), -0.4, 0.8);
   },
   600_000,

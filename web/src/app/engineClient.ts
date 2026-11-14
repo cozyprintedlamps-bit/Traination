@@ -3,7 +3,8 @@
 import type { PartMesh } from "../core/mesh";
 import type { ElementType, Variant } from "../core/track";
 import type { Fits, Vehicle } from "../core/vehicle";
-import type { VehicleMeshes } from "../geometry/engine";
+import type { BuildingMeshes, VehicleMeshes } from "../geometry/engine";
+import type { Building } from "../core/buildings";
 import type { TrackOptions } from "../geometry/track";
 import type { MeshSource } from "../export/printItems";
 import type { WorkerRequest, WorkerResponse } from "./engine.worker";
@@ -63,7 +64,17 @@ export class EngineClient implements MeshSource {
 
   vehicle(vehicle: Vehicle, fits: Fits): Promise<VehicleMeshes> {
     // name and colours do not change the geometry
-    return this.send({ op: "vehicle", vehicle: { ...vehicle, id: "", name: "", colors: { chassis: "", body: "", accent: "", wheels: "" } }, fits });
+    const colors = { chassis: "", body: "", roof: "", details: "", load: "", decor: "", wheels: "" };
+    return this.send({ op: "vehicle", vehicle: { ...vehicle, id: "", name: "", colors }, fits });
+  }
+
+  support(height: number, plain: boolean): Promise<PartMesh> {
+    return this.send({ op: "support", height: Math.round(height * 10) / 10, plain });
+  }
+
+  building(building: Building): Promise<BuildingMeshes> {
+    // position and colours do not change the geometry
+    return this.send({ op: "building", building: { ...building, id: "", x: 0, y: 0, rotation: 0, colors: { walls: "", roof: "", details: "" } } });
   }
 }
 

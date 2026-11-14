@@ -1,6 +1,14 @@
 # Traination – Web-App
 
-Generator für 3D-druckbare Holzbahn-Teile (Brio-/IKEA-kompatibel): Strecke planen, Elemente und Züge konfigurieren, als 3MF für Bambu Studio exportieren. Alles rechnet im Browser (manifold-3d als WebAssembly in einem Web Worker), es gibt keinen Server.
+Generator für 3D-druckbare Holzbahn-Teile (Brio-/IKEA-kompatibel):
+
+- Strecke planen und automatisch schließen; Stützen unter erhöhter Strecke kommen von selbst.
+- Bahnhöfe und Gebäude aufstellen.
+- Elemente konfigurieren, auch mit LEGO-/DUPLO-kompatiblen Noppenleisten.
+- Züge aus vier Kategorien zusammenziehen, gestalten und einfärben, auch eine E-Lok mit Bambu Lab CyberBrick.
+- Alles als 3MF für Bambu Studio exportieren.
+
+Alles rechnet im Browser (manifold-3d als WebAssembly in einem Web Worker), es gibt keinen Server.
 
 ## Befehle
 

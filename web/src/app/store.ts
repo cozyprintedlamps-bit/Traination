@@ -8,9 +8,15 @@ import { PLAIN, makeElement, newId } from "../core/track";
 import type { ElementKind, ElementType } from "../core/track";
 import { changeKind, makeVehicle } from "../core/vehicle";
 import type { Vehicle, VehicleKind } from "../core/vehicle";
+import { closeGap, pairToClose } from "../core/autoclose";
+import type { CloseError } from "../core/autoclose";
+import { makeBuilding } from "../core/buildings";
+import type { Building, BuildingKind } from "../core/buildings";
+import { rotate } from "../core/layout";
+import { TRACK_WIDTH } from "../presets/gauge";
 
-export type StepId = "track" | "elements" | "vehicles" | "design" | "export";
-export const STEPS: readonly StepId[] = ["track", "elements", "vehicles", "design", "export"];
+export type StepId = "track" | "elements" | "vehicles" | "design" | "overview" | "export";
+export const STEPS: readonly StepId[] = ["track", "elements", "vehicles", "design", "overview", "export"];
 
 export interface Selection {
   piece?: string;
@@ -18,6 +24,7 @@ export interface Selection {
   target?: { piece: string; index: number };
   element?: string;
   vehicle?: string;
+  building?: string;
 }
 
 export interface State {
@@ -28,6 +35,8 @@ export interface State {
   canRedo: boolean;
   /** bumps when the 3D view should look at everything again */
   fitToken: number;
+  /** vehicle steps: show the whole train instead of the selected vehicle */
+  trainView: boolean;
 }
 
 const STORAGE_KEY = "traination.project";
@@ -51,7 +60,7 @@ export class Store {
 
   constructor(initial?: Project) {
     const project = initial ?? loadSaved() ?? newProject("oval");
-    this.state = { project, step: "track", selection: { vehicle: project.vehicles[0]?.id, element: project.elements[0]?.id }, canUndo: false, canRedo: false, fitToken: 0 };
+    this.state = { project, step: "track", selection: { vehicle: project.vehicles[0]?.id, element: project.elements[0]?.id }, canUndo: false, canRedo: false, fitToken: 0, trainView: false };
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -112,11 +121,73 @@ export class Store {
       ...(s.target && pieces.has(s.target.piece) ? { target: s.target } : {}),
       element: p.elements.some((e) => e.id === s.element) ? s.element : p.elements[0]?.id,
       vehicle: p.vehicles.some((v) => v.id === s.vehicle) ? s.vehicle : p.vehicles[0]?.id,
+      ...(s.building && p.buildings.some((b) => b.id === s.building) ? { building: s.building } : {}),
     };
   }
 
   setStep(step: StepId): void {
     this.set({ step });
+  }
+
+  setTrainView(trainView: boolean): void {
+    this.set({ trainView });
+  }
+
+  // ---------------------------------------------------------------------------- closing the track
+
+  /** Adds the pieces that join two free ends. Returns an error code if no route is found. */
+  closeTrack(): CloseError | undefined {
+    const { project, selection } = this.state;
+    const a = analyze(project.layout, project.elements);
+    const pair = pairToClose(a.open, selection.target);
+    if (!pair) return "no_pair";
+    const result = closeGap(project.elements, pair[0], pair[1]);
+    if (typeof result === "string") return result;
+    this.update((p) => ({ ...p, elements: [...p.elements, ...result.newTypes], layout: { pieces: [...p.layout.pieces, ...result.pieces] } }), {
+      ...selection,
+      piece: result.pieces[result.pieces.length - 1]?.id,
+      target: undefined,
+    });
+    return undefined;
+  }
+
+  // ---------------------------------------------------------------------------- buildings
+
+  /** A new building beside the selected piece (or beside the plan). */
+  addBuilding(kind: BuildingKind): void {
+    const { project, selection } = this.state;
+    const a = analyze(project.layout, project.elements);
+    const piece = selection.piece ? a.poses.get(selection.piece) : undefined;
+    const made = makeBuilding(kind);
+    let at = { x: 0, y: -120, rotation: 0 };
+    if (piece) {
+      // beside the selected piece, on its right, facing the track
+      const [dx, dy] = rotate(40, -(TRACK_WIDTH / 2 + 6 + made.width / 2), piece.rotation);
+      at = { x: piece.x + dx, y: piece.y + dy, rotation: piece.rotation };
+    } else if (project.layout.pieces.length > 0) {
+      const ys = [...a.poses.values()].map((p) => p.y);
+      at = { x: 0, y: Math.min(...ys) - 60 - made.width / 2, rotation: 0 };
+    }
+    const building = { ...made, ...at };
+    this.update((p) => ({ ...p, buildings: [...p.buildings, building] }), { ...selection, building: building.id, piece: undefined });
+  }
+
+  changeBuilding(id: string, patch: Partial<Building>, record = true): void {
+    const change = (p: Project): Project => ({ ...p, buildings: p.buildings.map((b) => (b.id === id ? { ...b, ...patch, colors: { ...b.colors, ...patch.colors } } : b)) });
+    if (record) this.update(change);
+    else {
+      this.set({ project: change(this.state.project) });
+      this.autosave();
+    }
+  }
+
+  moveBuilding(id: string, dx: number, dy: number): void {
+    const b = this.state.project.buildings.find((x) => x.id === id);
+    if (b) this.changeBuilding(id, { x: b.x + dx, y: b.y + dy }, false);
+  }
+
+  removeBuilding(id: string): void {
+    this.update((p) => ({ ...p, buildings: p.buildings.filter((b) => b.id !== id) }), { ...this.state.selection, building: undefined });
   }
 
   select(patch: Selection): void {
@@ -281,9 +352,26 @@ export class Store {
 
   // ---------------------------------------------------------------------------- vehicles
 
-  addVehicle(kind: VehicleKind): void {
+  /** A new vehicle at the end of the train or at `index` (drag and drop). */
+  addVehicle(kind: VehicleKind, index?: number): void {
     const v = makeVehicle(kind);
-    this.update((p) => ({ ...p, vehicles: [...p.vehicles, v] }), { ...this.state.selection, vehicle: v.id });
+    this.update((p) => {
+      const vehicles = [...p.vehicles];
+      vehicles.splice(index ?? vehicles.length, 0, v);
+      return { ...p, vehicles };
+    }, { ...this.state.selection, vehicle: v.id });
+  }
+
+  /** Moves a vehicle to position `index` of the train (drag and drop). */
+  moveVehicleTo(id: string, index: number): void {
+    this.update((p) => {
+      const vehicles = [...p.vehicles];
+      const i = vehicles.findIndex((v) => v.id === id);
+      if (i < 0) return p;
+      const [v] = vehicles.splice(i, 1);
+      vehicles.splice(index > i ? index - 1 : index, 0, v as Vehicle);
+      return { ...p, vehicles };
+    });
   }
 
   duplicateVehicle(id: string): void {

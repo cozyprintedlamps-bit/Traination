@@ -34,22 +34,69 @@ describe("app", () => {
 
     // add a curve to the right on the open end of a fresh plan
     await page.getByRole("button", { name: "Leer" }).click();
-    await page.getByRole("button", { name: "Anbauen: Gerade 216 mm" }).click();
+    await page.getByRole("button", { name: "Anbauen: Gerade 216 mm", exact: true }).click();
     await page.getByRole("button", { name: /rechts ↷/ }).first().click();
     await page.getByRole("button", { name: /rechts ↷/ }).first().click();
     await waitForScene(page);
     expect(await page.locator(".plan .piece").count()).toBe(3);
     await shot(page, "1-track-built");
-    await page.getByRole("button", { name: "Abstellgleis" }).click();
-    await waitForScene(page);
 
-    for (const step of ["elements", "vehicles", "design", "export"]) {
+    // half a loop: "close the track" finishes it
+    for (let i = 0; i < 2; i++) await page.getByRole("button", { name: /rechts ↷/ }).first().click();
+    await page.getByTestId("close-track").click();
+    await waitForScene(page);
+    expect(await page.getByTestId("open-end").count()).toBe(0);
+    await shot(page, "1-track-closed");
+    await page.getByRole("button", { name: "Abstellgleis" }).click();
+    await page.getByRole("button", { name: "Wasserturm" }).click();
+    await waitForScene(page);
+    expect(await page.locator(".plan .building").count()).toBe(3);
+
+    const steps = ["track", "elements", "vehicles", "design", "overview", "export"];
+    for (const step of steps.slice(1)) {
       await page.getByTestId(`step-${step}`).click();
       await waitForScene(page);
-      await shot(page, `${["track", "elements", "vehicles", "design", "export"].indexOf(step) + 1}-${step}`);
+      if (step === "overview") await page.getByTestId("overview-parts").waitFor({ timeout: 60_000 });
+      await shot(page, `${steps.indexOf(step) + 1}-${step}`);
     }
-    await page.getByRole("button", { name: "Alles zeigen" }).click();
-    await shot(page, "5-export-fit");
+    expect(errors).toEqual([]);
+  });
+
+  it("drags a vehicle from the palette into the train and designs it", async () => {
+    if (!session) return;
+    const { page, errors } = await session.newPage();
+    await waitForScene(page);
+    await page.getByTestId("step-vehicles").click();
+    await page.getByRole("tab", { name: "Güterwagen" }).click();
+    const before = await page.getByTestId("train-car").count();
+    await page.getByTestId("palette-container").dragTo(page.getByTestId("train-car").first(), { targetPosition: { x: 20, y: 4 } });
+    expect(await page.getByTestId("train-car").count()).toBe(before + 1);
+    await expect(page.getByTestId("train-car").first().textContent()).resolves.toContain("Containerwagen");
+    await page.getByRole("tab", { name: "Loks" }).click();
+    await page.getByTestId("palette-cyberbrick").click();
+    await waitForScene(page);
+    await shot(page, "3-cyberbrick");
+    await page.getByRole("radio", { name: "Ganzer Zug" }).click();
+    await waitForScene(page);
+    await shot(page, "3-whole-train");
+    await page.getByTestId("step-design").click();
+    await page.getByTestId("train-car").first().getByRole("button").first().click();
+    await page.getByRole("radio", { name: "Fahrzeug" }).click();
+    await page.getByRole("radio", { name: "Sterne", exact: true }).first().click();
+    await page.getByTestId("lettering").fill("emma 7");
+    await expect(page.getByTestId("lettering").inputValue()).resolves.toBe("EMMA 7");
+    await waitForScene(page);
+    await shot(page, "4-design-art");
+    expect(errors).toEqual([]);
+  });
+
+  it("exports buildings as a 3MF file", async () => {
+    if (!session) return;
+    const { page, errors } = await session.newPage();
+    await waitForScene(page);
+    await page.getByTestId("step-export").click();
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Gebäude als 3MF" }).click()]);
+    expect(download.suggestedFilename()).toMatch(/buildings\.3mf$/);
     expect(errors).toEqual([]);
   });
 

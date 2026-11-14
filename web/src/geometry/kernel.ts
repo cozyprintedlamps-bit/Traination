@@ -28,11 +28,11 @@ type AnyFunction = (this: unknown, ...args: unknown[]) => unknown;
 
 const TRACKED = {
   Manifold: {
-    instance: ["add", "subtract", "intersect", "translate", "rotate", "scale"],
+    instance: ["add", "subtract", "intersect", "translate", "rotate", "scale", "mirror", "transform", "warp", "hull"],
     static: ["hull", "union", "difference", "cylinder", "cube", "extrude", "sphere", "revolve"],
   },
   CrossSection: {
-    instance: ["add", "subtract", "intersect", "translate", "rotate", "extrude", "offset", "scale", "revolve"],
+    instance: ["add", "subtract", "intersect", "translate", "rotate", "extrude", "offset", "scale", "revolve", "mirror", "transform", "hull"],
     static: ["square", "circle", "ofPolygons", "union", "difference", "hull"],
   },
 } as const;

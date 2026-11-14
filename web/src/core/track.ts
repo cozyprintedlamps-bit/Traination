@@ -15,6 +15,8 @@ import {
   STRAIGHT_LENGTHS,
   TRACK_WIDTH,
 } from "../presets/gauge";
+import { ledgeWidth } from "../presets/bricks";
+import type { StudKind } from "../presets/bricks";
 
 export type ElementKind = "straight" | "curve" | "switch" | "yswitch" | "crossing" | "ramp" | "bridge" | "buffer" | "adapter";
 export type Gender = "male" | "female";
@@ -45,6 +47,12 @@ export interface ElementType {
   hand: "left" | "right";
   /** adapter: both ends male or both female */
   adapter: Gender;
+  /** a ledge with building-brick studs beside the track (straight, curve, buffer stop) */
+  studs: StudKind;
+  /** on which side of the direction of travel (from port 0) */
+  studSide: "left" | "right" | "both";
+  /** rows of studs on each ledge */
+  studRows: number;
 }
 
 /** How a piece is used: mirrored (a left curve becomes a right one) and/or with its genders swapped. */
@@ -91,7 +99,23 @@ const DEFAULTS: Omit<ElementType, "id" | "kind" | "name" | "color"> = {
   crossAngle: 90,
   hand: "left",
   adapter: "male",
+  studs: "none",
+  studSide: "both",
+  studRows: 1,
 };
+
+/** Kinds that can carry a stud ledge. */
+export const takesStuds = (kind: ElementKind) => kind === "straight" || kind === "curve" || kind === "buffer";
+
+/** Width of the ledge on the left and the right of the track as used (mirroring swaps the sides). */
+export function ledges(type: ElementType, variant: Variant = PLAIN): { left: number; right: number } {
+  if (!takesStuds(type.kind) || type.studs === "none") return { left: 0, right: 0 };
+  const w = ledgeWidth(type.studs, type.studRows);
+  let left = type.studSide !== "right" ? w : 0;
+  let right = type.studSide !== "left" ? w : 0;
+  if (variant.mirror) [left, right] = [right, left];
+  return { left, right };
+}
 
 export const DEFAULT_TRACK_COLOR = "#E4BD68"; // Bambu PLA Basic Gold: looks like wood
 
@@ -122,6 +146,8 @@ export function standardElements(): ElementType[] {
     makeElement("buffer", { id: "buffer" }),
     makeElement("adapter", { id: "adapter-mm", adapter: "male" }),
     makeElement("adapter", { id: "adapter-ff", adapter: "female" }),
+    makeElement("straight", { id: "straight-216-lego", length: 216, studs: "lego" }),
+    makeElement("straight", { id: "straight-216-duplo", length: 216, studs: "duplo", studSide: "left" }),
   ];
 }
 
@@ -259,6 +285,7 @@ export const standsOnGround = (kind: ElementKind) => kind === "ramp" || kind ===
 /** The outline of an element seen from above, one closed polygon per path (for the plan). */
 export function outline(type: ElementType, variant: Variant = PLAIN, step = 4): [number, number][][] {
   const half = TRACK_WIDTH / 2;
+  const ledge = ledges(type, variant);
   return elementShape(type, variant).paths.map((path) => {
     const length = pathLength(path);
     const n = Math.max(1, Math.ceil(length / step));
@@ -268,8 +295,8 @@ export function outline(type: ElementType, variant: Variant = PLAIN, step = 4): 
       const p = pointAt(path, (length * i) / n);
       const nx = -Math.sin(p.heading * RAD);
       const ny = Math.cos(p.heading * RAD);
-      left.push([p.x + nx * half, p.y + ny * half]);
-      right.push([p.x - nx * half, p.y - ny * half]);
+      left.push([p.x + nx * (half + ledge.left), p.y + ny * (half + ledge.left)]);
+      right.push([p.x - nx * (half + ledge.right), p.y - ny * (half + ledge.right)]);
     }
     return [...left, ...right.reverse()];
   });

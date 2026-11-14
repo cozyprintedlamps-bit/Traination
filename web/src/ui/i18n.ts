@@ -1,5 +1,7 @@
 // UI texts in German and English. No strings in the logic code: everything the user reads goes
 // through tr(). The language is kept in the browser (try/catch: storage may be blocked).
+import type { Building } from "../core/buildings";
+import { takesStuds } from "../core/track";
 import type { ElementType, Variant } from "../core/track";
 import type { Vehicle } from "../core/vehicle";
 import { DE } from "./texts_de";
@@ -52,7 +54,8 @@ export function tr(key: TextKey, vars: Record<string, string | number> = {}): st
 
 /** The generated name of an element type (or the user's own). */
 export function elementName(type: ElementType, variant?: Variant): string {
-  const base = type.name.trim() || generatedName(type);
+  const studs = takesStuds(type.kind) && type.studs !== "none" ? ` ${tr("name.studs", { kind: tr(type.studs === "lego" ? "studs.lego" : "studs.duplo") })}` : "";
+  const base = type.name.trim() || `${generatedName(type)}${studs}`;
   if (!variant) return base;
   const extra = [variant.mirror ? tr("variant.mirror") : "", variant.swap ? tr("variant.swap") : ""].filter(Boolean);
   return extra.length > 0 ? `${base} (${extra.join(", ")})` : base;
@@ -84,6 +87,13 @@ function generatedName(t: ElementType): string {
 export function vehicleName(v: Vehicle, index?: number): string {
   if (v.name.trim()) return v.name.trim();
   const kind = tr(`vkind.${v.kind}` as TextKey);
+  return index === undefined ? kind : `${index + 1}. ${kind}`;
+}
+
+export function buildingName(b: Building, index?: number): string {
+  const kind = tr(`bkind.${b.kind}` as TextKey);
+  const own = b.name.trim();
+  if (own) return `${kind} ${own}`;
   return index === undefined ? kind : `${index + 1}. ${kind}`;
 }
 

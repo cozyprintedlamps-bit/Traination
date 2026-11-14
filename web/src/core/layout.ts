@@ -323,7 +323,8 @@ export function partsList(layout: Layout, types: readonly ElementType[], doubleS
 
 /** The variant that is actually printed. */
 export function printVariant(type: ElementType, variant: Variant, doubleSided: boolean): Variant {
-  const flat = !standsOnGround(type.kind);
+  // a piece turned over is the mirrored one, unless it stands on the bed or carries studs on top
+  const flat = !standsOnGround(type.kind) && (type.studs ?? "none") === "none";
   return { mirror: variant.mirror && !(doubleSided && flat), swap: variant.swap };
 }
 

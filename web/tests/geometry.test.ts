@@ -1,7 +1,10 @@
 // Geometry invariants: the solids are clean, keep the standard sizes and fit together.
 import { beforeAll, describe, expect, it } from "vitest";
 import { createEngine } from "../src/geometry/engine";
-import type { Engine } from "../src/geometry/engine";
+import type { Engine, VehicleMeshes } from "../src/geometry/engine";
+import { BUILDING_KINDS, makeBuilding } from "../src/core/buildings";
+import { LEGO } from "../src/presets/bricks";
+import { DRIVE } from "../src/presets/cyberbrick";
 import { PLAIN, makeElement, standardElements } from "../src/core/track";
 import { DEFAULT_FITS, VEHICLE_KINDS, chassisSizes, makeVehicle } from "../src/core/vehicle";
 import { GROOVE_DEPTH, GROOVE_SPACING, GROOVE_WIDTH, PEG_REACH, TRACK_HEIGHT, TRACK_WIDTH } from "../src/presets/gauge";
@@ -68,15 +71,54 @@ describe("track elements", () => {
 });
 
 describe("vehicles", () => {
-  it.each(VEHICLE_KINDS)("%s builds clean parts", (kind) => {
+  const all = (m: VehicleMeshes) => [m.chassis, m.body, m.axle, m.running, ...m.parts.map((p) => p.mesh), ...m.wheels.map((w) => w.mesh), ...m.drive.map((d) => d.mesh)];
+
+  it.each(VEHICLE_KINDS.flatMap((k) => [[k, true] as const, [k, false] as const]))("%s builds clean parts (split %s)", (kind, split) => {
     const v = makeVehicle(kind);
+    v.design = { ...v.design, split, decor: "stars", lettering: "TRAIN 1", face: true };
     const m = engine.vehicle(v, DEFAULT_FITS);
-    for (const part of [m.chassis, m.body, m.wheel, m.axle, m.running, ...(m.accent ? [m.accent] : [])]) {
+    for (const part of all(m)) {
       expect(part.status).toBe("NoError");
       expect(part.volume).toBeGreaterThan(0);
     }
     // the body stands on the deck
     expect(m.body.min[2]).toBeGreaterThanOrEqual(-0.01);
+    // split: coloured parts are separate print parts; otherwise volumes of the body
+    for (const p of m.parts) if (!split) expect(p.separate).toBe(false);
+  });
+
+  it("separate parts plug onto pins of the body", () => {
+    const v = makeVehicle("steam");
+    const m = engine.vehicle(v, DEFAULT_FITS);
+    const separate = m.parts.filter((p) => p.separate);
+    expect(separate.map((p) => p.slot).sort()).toEqual(["details", "details", "roof"]);
+    // chimney and dome stand on flat seats: their bottom is above the boiler top
+    for (const p of separate) expect(p.mesh.min[2]).toBeGreaterThan(5);
+  });
+
+  it("decoration is raised in its own colour, or engraved when printed in parts", () => {
+    const raised = makeVehicle("box");
+    raised.design = { ...raised.design, split: false, decor: "stripe" };
+    expect(engine.vehicle(raised, DEFAULT_FITS).parts.some((p) => p.slot === "decor")).toBe(true);
+    const engraved = { ...raised, design: { ...raised.design, split: true } };
+    const plain = { ...raised, design: { ...raised.design, split: true, decor: "none" as const } };
+    expect(engine.vehicle(engraved, DEFAULT_FITS).parts.some((p) => p.slot === "decor")).toBe(false);
+    expect(engine.vehicle(engraved, DEFAULT_FITS).body.volume).toBeLessThan(engine.vehicle(plain, DEFAULT_FITS).body.volume);
+  });
+
+  it("the CyberBrick locomotive has a worm drive above the track", () => {
+    const v = makeVehicle("cyberbrick");
+    const s = chassisSizes(v);
+    const m = engine.vehicle(v, DEFAULT_FITS);
+    expect(m.drive.map((d) => d.name).sort()).toEqual(["worm", "wormWheel"]);
+    expect(m.wheels.map((w) => w.radius).sort((a, b) => a - b)).toEqual([8, DRIVE.drivenWheelDiameter / 2]);
+    // nothing of the running gear reaches below the track top (except wheels in the grooves)
+    const driven = s.axles.find((a) => a.driven)!;
+    const gearBottom = driven.z - (DRIVE.module * DRIVE.wheelTeeth) / 2 - DRIVE.module;
+    expect(gearBottom).toBeGreaterThan(-s.trackGap);
+    // all wheels stand on the groove bottom
+    for (const a of s.axles) expect(a.z - a.radius + GROOVE_DEPTH).toBeCloseTo(-s.trackGap, 6);
+    expect(m.inside?.status).toBe("NoError");
   });
 
   it("wheels run in the grooves", () => {
@@ -109,5 +151,36 @@ describe("vehicles", () => {
     expect(m.chassis.max[0]).toBeGreaterThan(v.length / 2 + 5);
     expect(m.chassis.min[0]).toBeLessThan(-v.length / 2 - 5);
     expect(m.chassis.status).toBe("NoError");
+  });
+});
+
+describe("stud ledges, supports and buildings", () => {
+  it("a LEGO ledge carries studs on the 8 mm grid", () => {
+    const plain = engine.element(makeElement("straight", { length: 216 }), PLAIN, options);
+    const lego = engine.element(makeElement("straight", { length: 216, studs: "lego", studSide: "left" }), PLAIN, options);
+    expect(lego.status).toBe("NoError");
+    expect(lego.max[1] - plain.max[1]).toBeCloseTo(LEGO.pitch, 3);
+    expect(lego.max[2]).toBeCloseTo(TRACK_HEIGHT + LEGO.height, 2);
+    const duplo = engine.element(makeElement("curve", { studs: "duplo", studSide: "both" }), PLAIN, options);
+    expect(duplo.status).toBe("NoError");
+  });
+
+  it("a support is as high as the track above it", () => {
+    const s = engine.support(38, false);
+    expect(s.status).toBe("NoError");
+    expect(s.min[2]).toBeCloseTo(0, 3);
+    expect(s.max[2]).toBeCloseTo(38 + 3, 3);
+    expect(engine.support(38, true).max[2]).toBeCloseTo(38, 3);
+  });
+
+  it.each(BUILDING_KINDS)("%s builds clean parts", (kind) => {
+    const b = makeBuilding(kind);
+    b.name = "TRAINATION";
+    const m = engine.building(b);
+    for (const part of [m.base, ...(m.roof ? [m.roof] : []), ...(m.details ? [m.details] : [])]) {
+      expect(part.status).toBe("NoError");
+      expect(part.volume).toBeGreaterThan(0);
+    }
+    expect(m.base.min[2]).toBeCloseTo(0, 2);
   });
 });

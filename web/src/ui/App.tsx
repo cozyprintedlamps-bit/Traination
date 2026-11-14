@@ -8,6 +8,7 @@ import { ProjectFileError } from "../core/project";
 import { DesignPage } from "./DesignPage";
 import { ElementsPage } from "./ElementsPage";
 import { ExportPage } from "./ExportPage";
+import { OverviewPage } from "./OverviewPage";
 import { download, pickTextFile } from "./files";
 import { Icon } from "./Icon";
 import { LANGUAGES, language, setLanguage, tr } from "./i18n";
@@ -37,11 +38,12 @@ const PAGES: Record<StepId, () => React.JSX.Element> = {
   elements: ElementsPage,
   vehicles: VehiclesPage,
   design: DesignPage,
+  overview: OverviewPage,
   export: ExportPage,
 };
 
 /** Steps that show the plan on the right. */
-const WITH_PLAN: ReadonlySet<StepId> = new Set(["track", "elements", "export"]);
+const WITH_PLAN: ReadonlySet<StepId> = new Set(["track", "elements", "overview", "export"]);
 
 export function App() {
   const state = useAppState();
@@ -74,13 +76,15 @@ export function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
         e.preventDefault();
         store.redo();
+      } else if ((e.key === "Delete" || e.key === "Backspace") && step === "track" && state.selection.building) {
+        store.removeBuilding(state.selection.building);
       } else if ((e.key === "Delete" || e.key === "Backspace") && step === "track" && state.selection.piece) {
         store.removePiece(state.selection.piece);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [store, step, state.selection.piece]);
+  }, [store, step, state.selection.piece, state.selection.building]);
 
   useEffect(() => {
     if (!notice) return;
@@ -215,11 +219,13 @@ export function App() {
                 if (step === "elements" && id) {
                   const piece = project.layout.pieces.find((p) => p.id === id);
                   store.select({ element: piece?.type, piece: id });
-                } else store.select({ piece: id });
+                } else store.select({ piece: id, building: undefined });
               }}
               onSelectPort={(piece, index) => store.select({ target: { piece, index } })}
+              onSelectBuilding={(id) => store.select({ building: id, piece: undefined })}
               onDragStart={() => store.beginGesture()}
               onDrag={(piece, dx, dy) => store.moveRoot(store.rootOf(piece), dx, dy, false)}
+              onDragBuilding={(id, dx, dy) => store.moveBuilding(id, dx, dy)}
             />
           </aside>
         )}

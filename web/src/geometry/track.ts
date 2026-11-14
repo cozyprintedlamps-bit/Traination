@@ -4,7 +4,8 @@
 // Sweeps: a cross-section in (u = across, left positive; v = up) is extruded along +X for lines
 // and revolved around the curve centre for arcs.
 import type { CrossSection, Manifold, ManifoldToplevel } from "manifold-3d";
-import { elementShape, pathLength, smoothstep, standsOnGround } from "../core/track";
+import { elementShape, ledges, pathLength, pointAt, smoothstep, standsOnGround } from "../core/track";
+import { STUD_FIT, studSystem } from "../presets/bricks";
 import type { ElementType, Path, Port, Variant } from "../core/track";
 import {
   BRIDGE_DECK,
@@ -21,6 +22,12 @@ import {
   TRACK_EDGE_CHAMFER,
   TRACK_HEIGHT,
   TRACK_WIDTH,
+  SUPPORT_FIT,
+  SUPPORT_FOOT,
+  SUPPORT_FOOT_GROW,
+  SUPPORT_LENGTH,
+  SUPPORT_LIP,
+  SUPPORT_LIP_THICKNESS,
 } from "../presets/gauge";
 
 export interface TrackOptions {
@@ -193,7 +200,11 @@ export function buildElement(wasm: ManifoldToplevel, type: ElementType, variant:
     bodies.push(block, beam);
   }
 
+  // stud ledges beside the track (no grooves cut into them: they are added after the grooves)
+  const studParts = studLedges(wasm, type, variant);
+
   let solid = Manifold.union(bodies).subtract(Manifold.union(cutters));
+  if (studParts) solid = solid.add(studParts);
   const sockets = shape.ports.filter((p) => p.gender === "female").map((p) => socket(wasm, p, options.connectorFit));
   if (sockets.length > 0) solid = solid.subtract(Manifold.union(sockets));
   // a bridge is printed upside down: its pegs reach the full height, so that they lie on the bed
@@ -205,5 +216,73 @@ export function buildElement(wasm: ManifoldToplevel, type: ElementType, variant:
 
 /** Bridges are printed upside down, everything else as it lies. */
 export const printFlipped = (type: ElementType) => type.kind === "bridge";
+
+/** Ledges with building-brick studs on the left and/or right of the paths of an element. */
+function studLedges(wasm: ManifoldToplevel, type: ElementType, variant: Variant): Manifold | undefined {
+  const system = studSystem(type.studs);
+  const side = ledges(type, variant);
+  if (!system || side.left + side.right === 0) return undefined;
+  const half = TRACK_WIDTH / 2;
+  const parts: Manifold[] = [];
+  const studR = (system.diameter + STUD_FIT) / 2;
+  for (const path of elementShape(type, variant).paths) {
+    const length = pathLength(path);
+    for (const [sign, width] of [
+      [1, side.left],
+      [-1, side.right],
+    ] as const) {
+      if (width <= 0) continue;
+      const u0 = sign > 0 ? half - 0.5 : -half - width;
+      const u1 = sign > 0 ? half + width : -half + 0.5;
+      const ledge = wasm.CrossSection.ofPolygons([
+        [
+          [u0, 0],
+          [u1, 0],
+          [u1, TRACK_HEIGHT],
+          [u0, TRACK_HEIGHT],
+        ],
+      ]);
+      parts.push(sweep(wasm, ledge, path));
+      // studs on the grid, centred along the path
+      const n = Math.floor(length / system.pitch);
+      const start = (length - n * system.pitch) / 2 + system.pitch / 2;
+      const rows = Math.round(width / system.pitch);
+      for (let i = 0; i < n; i++) {
+        const p = pointAt(path, start + i * system.pitch);
+        const nx = -Math.sin((p.heading * Math.PI) / 180);
+        const ny = Math.cos((p.heading * Math.PI) / 180);
+        for (let r = 0; r < rows; r++) {
+          const u = sign * (half + system.pitch * (r + 0.5));
+          let stud = wasm.Manifold.cylinder(system.height + 0.01, studR, studR, 32).translate([0, 0, TRACK_HEIGHT - 0.01]);
+          if (system.hollow > 0) stud = stud.subtract(wasm.Manifold.cylinder(system.height + 1, system.hollow / 2, system.hollow / 2, 24).translate([0, 0, TRACK_HEIGHT + 0.3]));
+          parts.push(stud.translate([p.x + nx * u, p.y + ny * u, p.z]));
+        }
+      }
+    }
+  }
+  return wasm.Manifold.union(parts);
+}
+
+/** A pillar under raised track: a foot, the column and side lips that hold the track (none if `plain`). */
+export function buildSupport(wasm: ManifoldToplevel, height: number, plain: boolean): Manifold {
+  const { Manifold } = wasm;
+  const inner = TRACK_WIDTH + SUPPORT_FIT;
+  const outer = inner + 2 * SUPPORT_LIP_THICKNESS;
+  const column = Manifold.cube([SUPPORT_LENGTH, outer, height], false).translate([-SUPPORT_LENGTH / 2, -outer / 2, 0]);
+  const foot = Manifold.cube([SUPPORT_LENGTH + SUPPORT_FOOT_GROW, outer + SUPPORT_FOOT_GROW, Math.min(SUPPORT_FOOT, height)], false).translate([
+    -(SUPPORT_LENGTH + SUPPORT_FOOT_GROW) / 2,
+    -(outer + SUPPORT_FOOT_GROW) / 2,
+    0,
+  ]);
+  let solid = column.add(foot);
+  if (!plain) {
+    for (const sign of [1, -1]) {
+      solid = solid.add(
+        Manifold.cube([SUPPORT_LENGTH, SUPPORT_LIP_THICKNESS, SUPPORT_LIP], false).translate([-SUPPORT_LENGTH / 2, sign > 0 ? inner / 2 : -inner / 2 - SUPPORT_LIP_THICKNESS, height]),
+      );
+    }
+  }
+  return solid;
+}
 
 export { pathLength };
