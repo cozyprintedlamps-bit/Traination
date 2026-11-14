@@ -10,9 +10,10 @@ import { changeKind, makeVehicle } from "../core/vehicle";
 import type { Vehicle, VehicleKind } from "../core/vehicle";
 import { closeGap, pairToClose } from "../core/autoclose";
 import type { CloseError } from "../core/autoclose";
-import { makeBuilding } from "../core/buildings";
+import { OVER_TRACK, makeBuilding, snapPlate } from "../core/buildings";
 import type { Building, BuildingKind } from "../core/buildings";
 import { rotate } from "../core/layout";
+import { elementShape, pathLength, pointAt } from "../core/track";
 import { TRACK_WIDTH } from "../presets/gauge";
 import { PRINTERS } from "../presets/print";
 
@@ -155,14 +156,25 @@ export class Store {
 
   // ---------------------------------------------------------------------------- buildings
 
-  /** A new building beside the selected piece (or beside the plan). */
+  /**
+   * A new building beside the selected piece (or beside the plan). A tunnel, shed or hall goes over
+   * the selected piece instead, along its track.
+   */
   addBuilding(kind: BuildingKind): void {
     const { project, selection } = this.state;
     const a = analyze(project.layout, project.elements);
     const piece = selection.piece ? a.poses.get(selection.piece) : undefined;
     const made = makeBuilding(kind);
     let at = { x: 0, y: -120, rotation: 0 };
-    if (piece) {
+    const chosen = project.layout.pieces.find((p) => p.id === selection.piece);
+    const type = chosen && project.elements.find((e) => e.id === chosen.type);
+    const path = type && chosen ? elementShape(type, chosen.variant).paths[0] : undefined;
+    if (piece && path && OVER_TRACK.has(kind)) {
+      const mid = pointAt(path, pathLength(path) / 2);
+      const [dx, dy] = rotate(mid.x, mid.y, piece.rotation);
+      const right = path.kind === "arc" && path.sweep < 0;
+      at = { x: piece.x + dx, y: piece.y + dy, rotation: mid.heading + piece.rotation + (right ? 180 : 0) };
+    } else if (piece) {
       // beside the selected piece, on its right, facing the track
       const [dx, dy] = rotate(40, -(TRACK_WIDTH / 2 + 6 + made.width / 2), piece.rotation);
       at = { x: piece.x + dx, y: piece.y + dy, rotation: piece.rotation };
@@ -175,7 +187,8 @@ export class Store {
   }
 
   changeBuilding(id: string, patch: Partial<Building>, record = true): void {
-    const change = (p: Project): Project => ({ ...p, buildings: p.buildings.map((b) => (b.id === id ? { ...b, ...patch, colors: { ...b.colors, ...patch.colors } } : b)) });
+    // a building the user changes is theirs: another ready-made track no longer replaces it
+    const change = (p: Project): Project => ({ ...p, buildings: p.buildings.map((b) => (b.id === id ? snapPlate({ ...b, ...patch, colors: { ...b.colors, ...patch.colors }, fromTemplate: false }) : b)) });
     if (record) this.update(change);
     else {
       this.set({ project: change(this.state.project) });
@@ -319,9 +332,16 @@ export class Store {
       const fresh = newProject("empty").elements;
       const have = new Set(p.elements.map((e) => e.id));
       const built = buildTemplate(template, [...p.elements, ...fresh.filter((e) => !have.has(e.id))]);
-      // buildings that would stand on the new track move beside it
-      return { ...p, elements: built.elements, layout: built.layout, buildings: arrangeBuildings(built.layout, built.elements, p.buildings) };
-    }, { ...this.state.selection, piece: undefined, target: undefined });
+      // the buildings of the last ready-made track go, the user's own move beside the new track
+      const own = p.buildings.filter((b) => !b.fromTemplate);
+      return { ...p, elements: built.elements, layout: built.layout, buildings: [...built.buildings, ...arrangeBuildings(built.layout, built.elements, own)] };
+    }, { ...this.state.selection, piece: undefined, target: undefined, building: undefined });
+    this.fit();
+  }
+
+  /** "Build your own track": an empty plan; the buildings of a ready-made track go with it. */
+  startOwnTrack(): void {
+    this.update((p) => ({ ...p, layout: { pieces: [] }, buildings: p.buildings.filter((b) => !b.fromTemplate) }), { ...this.state.selection, piece: undefined, target: undefined, building: undefined });
     this.fit();
   }
 

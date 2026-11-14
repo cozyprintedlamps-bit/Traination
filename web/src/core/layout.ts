@@ -2,7 +2,7 @@
 // is plugged into), so changing an element type moves everything behind it. Loops are found by
 // looking for free ports that meet.
 import { TRACK_WIDTH } from "../presets/gauge";
-import { PLAIN, elementShape, newId, normDeg, pathLength, pointAt, standsOnGround, variantsOf } from "./track";
+import { PLAIN, elementShape, hasLever, hasStuds, newId, normDeg, pathLength, pointAt, standsOnGround, variantsOf } from "./track";
 import type { ElementType, Gender, Port, Variant } from "./track";
 
 export interface Piece {
@@ -326,8 +326,9 @@ export function partsList(layout: Layout, types: readonly ElementType[], doubleS
 
 /** The variant that is actually printed. */
 export function printVariant(type: ElementType, variant: Variant, doubleSided: boolean): Variant {
-  // a piece turned over is the mirrored one, unless it stands on the bed or carries studs on top
-  const flat = !standsOnGround(type.kind) && (type.studs ?? "none") === "none";
+  // a piece turned over is the mirrored one, unless it stands on the bed, carries studs on top or
+  // has a lever (its slider works from the top only)
+  const flat = !standsOnGround(type.kind) && !hasStuds(type) && !hasLever(type);
   return { mirror: variant.mirror && !(doubleSided && flat), swap: variant.swap };
 }
 

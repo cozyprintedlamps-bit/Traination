@@ -21,13 +21,41 @@ import {
   STRAIGHT_LENGTHS,
   TRACK_WIDTH,
 } from "../presets/gauge";
-import { ledgeWidth } from "../presets/bricks";
+import { ledgeWidth, maxRows } from "../presets/bricks";
 import type { StudKind } from "../presets/bricks";
 
 export type ElementKind = "straight" | "curve" | "switch" | "yswitch" | "crossing" | "ramp" | "bridge" | "buffer" | "adapter";
 export type Gender = "male" | "female";
 
 export const ELEMENT_KINDS: readonly ElementKind[] = ["straight", "curve", "switch", "yswitch", "crossing", "ramp", "bridge", "buffer", "adapter"];
+
+/** Groups of kinds for the lists of pieces. */
+export type ElementCategory = "straights" | "curves" | "switches" | "levels" | "special";
+export const ELEMENT_CATEGORIES: Readonly<Record<ElementCategory, readonly ElementKind[]>> = {
+  straights: ["straight"],
+  curves: ["curve"],
+  switches: ["switch", "yswitch", "crossing"],
+  levels: ["ramp", "bridge"],
+  special: ["buffer", "adapter"],
+};
+export const CATEGORY_IDS = Object.keys(ELEMENT_CATEGORIES) as ElementCategory[];
+export const categoryOfKind = (kind: ElementKind): ElementCategory => CATEGORY_IDS.find((c) => ELEMENT_CATEGORIES[c].includes(kind)) ?? "special";
+
+/** One ledge with building-brick studs beside the track. */
+export interface StudLedge {
+  kind: StudKind;
+  /** rows of studs */
+  rows: number;
+}
+
+/** The ledges on the left and the right of the direction of travel (from port 0). */
+export interface StudSides {
+  left: StudLedge;
+  right: StudLedge;
+}
+
+export const NO_LEDGE: StudLedge = { kind: "none", rows: 1 };
+export const noStuds = (): StudSides => ({ left: { ...NO_LEDGE }, right: { ...NO_LEDGE } });
 
 /** One kind of piece the user can place; its parameters decide the geometry. */
 export interface ElementType {
@@ -53,12 +81,10 @@ export interface ElementType {
   hand: "left" | "right";
   /** adapter: both ends male or both female */
   adapter: Gender;
-  /** a ledge with building-brick studs beside the track (straight, curve, buffer stop) */
-  studs: StudKind;
-  /** on which side of the direction of travel (from port 0) */
-  studSide: "left" | "right" | "both";
-  /** rows of studs on each ledge */
-  studRows: number;
+  /** ledges with building-brick studs beside the track (straight, curve, buffer stop), each side its own */
+  studs: StudSides;
+  /** switch, Y-switch: a slider with a blade and a knob sets the route (separate print part) */
+  lever: boolean;
 }
 
 /** How a piece is used: mirrored (a left curve becomes a right one) and/or with its genders swapped. */
@@ -96,7 +122,7 @@ export function newId(prefix: string): string {
   return `${prefix}${Date.now().toString(36)}${counter.toString(36)}`;
 }
 
-const DEFAULTS: Omit<ElementType, "id" | "kind" | "name" | "color"> = {
+const DEFAULTS: Omit<ElementType, "id" | "kind" | "name" | "color" | "studs"> = {
   length: 144,
   radius: CURVE_LARGE_RADIUS,
   angle: CURVE_ANGLE,
@@ -105,28 +131,49 @@ const DEFAULTS: Omit<ElementType, "id" | "kind" | "name" | "color"> = {
   crossAngle: 90,
   hand: "left",
   adapter: "male",
-  studs: "none",
-  studSide: "both",
-  studRows: 1,
+  lever: false,
 };
 
 /** Kinds that can carry a stud ledge. */
 export const takesStuds = (kind: ElementKind) => kind === "straight" || kind === "curve" || kind === "buffer";
 
-/** Width of the ledge on the left and the right of the track as used (mirroring swaps the sides). */
-export function ledges(type: ElementType, variant: Variant = PLAIN): { left: number; right: number } {
-  if (!takesStuds(type.kind) || type.studs === "none") return { left: 0, right: 0 };
-  const w = ledgeWidth(type.studs, type.studRows);
-  let left = type.studSide !== "right" ? w : 0;
-  let right = type.studSide !== "left" ? w : 0;
-  if (variant.mirror) [left, right] = [right, left];
-  return { left, right };
+/** Kinds that can be set with a lever. */
+export const takesLever = (kind: ElementKind) => kind === "switch" || kind === "yswitch";
+
+/** A ledge as it is built: a known kind, whole rows within the limits. */
+function cleanLedge(ledge: StudLedge | undefined): StudLedge {
+  const kind = ledge?.kind === "lego" || ledge?.kind === "duplo" ? ledge.kind : "none";
+  const rows = Math.min(Math.max(1, Math.round(ledge?.rows ?? 1)), maxRows(kind));
+  return { kind, rows };
 }
+
+/** The ledges on the left and the right of the track as used (mirroring swaps the sides). */
+export function ledgeSides(type: ElementType, variant: Variant = PLAIN): StudSides {
+  if (!takesStuds(type.kind) || !type.studs) return noStuds();
+  const left = cleanLedge(type.studs.left);
+  const right = cleanLedge(type.studs.right);
+  return variant.mirror ? { left: right, right: left } : { left, right };
+}
+
+/** True if the element carries studs on at least one side. */
+export function hasStuds(type: ElementType): boolean {
+  const s = ledgeSides(type);
+  return s.left.kind !== "none" || s.right.kind !== "none";
+}
+
+/** Width of the ledge on the left and the right of the track as used. */
+export function ledges(type: ElementType, variant: Variant = PLAIN): { left: number; right: number } {
+  const s = ledgeSides(type, variant);
+  return { left: ledgeWidth(s.left.kind, s.left.rows), right: ledgeWidth(s.right.kind, s.right.rows) };
+}
+
+/** True if a switch is built with a lever. */
+export const hasLever = (type: ElementType) => takesLever(type.kind) && type.lever === true;
 
 export const DEFAULT_TRACK_COLOR = "#E4BD68"; // Bambu PLA Basic Gold: looks like wood
 
 export function makeElement(kind: ElementKind, patch: Partial<ElementType> = {}): ElementType {
-  const base: ElementType = { id: newId("e"), kind, name: "", color: DEFAULT_TRACK_COLOR, ...DEFAULTS };
+  const base: ElementType = { id: newId("e"), kind, name: "", color: DEFAULT_TRACK_COLOR, ...DEFAULTS, studs: noStuds() };
   if (kind === "ramp") base.length = RAMP_LENGTH;
   if (kind === "bridge") Object.assign(base, { length: 144, height: BRIDGE_HEIGHT });
   if (kind === "buffer") base.length = BUFFER_LENGTH;
@@ -152,8 +199,8 @@ export function standardElements(): ElementType[] {
     makeElement("buffer", { id: "buffer" }),
     makeElement("adapter", { id: "adapter-mm", adapter: "male" }),
     makeElement("adapter", { id: "adapter-ff", adapter: "female" }),
-    makeElement("straight", { id: "straight-216-lego", length: 216, studs: "lego" }),
-    makeElement("straight", { id: "straight-216-duplo", length: 216, studs: "duplo", studSide: "left" }),
+    makeElement("straight", { id: "straight-216-lego", length: 216, studs: { left: { kind: "lego", rows: 1 }, right: { kind: "lego", rows: 1 } } }),
+    makeElement("straight", { id: "straight-216-duplo", length: 216, studs: { left: { kind: "duplo", rows: 1 }, right: { ...NO_LEDGE } } }),
   ];
 }
 

@@ -1,7 +1,7 @@
 // UI texts in German and English. No strings in the logic code: everything the user reads goes
 // through tr(). The language is kept in the browser (try/catch: storage may be blocked).
 import type { Building } from "../core/buildings";
-import { takesStuds } from "../core/track";
+import { hasLever, ledgeSides, takesStuds } from "../core/track";
 import type { ElementType, Variant } from "../core/track";
 import type { Vehicle } from "../core/vehicle";
 import { CROSSING_LENGTH } from "../presets/gauge";
@@ -55,8 +55,16 @@ export function tr(key: TextKey, vars: Record<string, string | number> = {}): st
 
 /** The generated name of an element type (or the user's own). */
 export function elementName(type: ElementType, variant?: Variant): string {
-  const studs = takesStuds(type.kind) && type.studs !== "none" ? ` ${tr("name.studs", { kind: tr(type.studs === "lego" ? "studs.lego" : "studs.duplo") })}` : "";
-  const base = type.name.trim() || `${generatedName(type)}${studs}`;
+  const sides = ledgeSides(type);
+  const kinds = new Set([sides.left.kind, sides.right.kind].filter((k) => k !== "none"));
+  const studs =
+    !takesStuds(type.kind) || kinds.size === 0
+      ? ""
+      : kinds.size > 1
+        ? ` ${tr("name.studs_both")}`
+        : ` ${tr("name.studs", { kind: tr(kinds.has("lego") ? "studs.lego" : "studs.duplo") })}`;
+  const lever = hasLever(type) ? ` ${tr("name.lever")}` : "";
+  const base = type.name.trim() || `${generatedName(type)}${studs}${lever}`;
   if (!variant) return base;
   const extra = [variant.mirror ? tr("variant.mirror") : "", variant.swap ? tr("variant.swap") : ""].filter(Boolean);
   return extra.length > 0 ? `${base} (${extra.join(", ")})` : base;

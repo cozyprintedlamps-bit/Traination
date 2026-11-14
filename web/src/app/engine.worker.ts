@@ -10,6 +10,7 @@ import type { TrackOptions } from "../geometry/track";
 
 export type WorkerRequest =
   | { id: number; op: "element" | "printElement"; type: ElementType; variant: Variant; options: TrackOptions }
+  | { id: number; op: "slider"; type: ElementType; variant: Variant }
   | { id: number; op: "vehicle"; vehicle: Vehicle; fits: Fits }
   | { id: number; op: "support"; height: number; plain: boolean }
   | { id: number; op: "building"; building: Building };
@@ -33,6 +34,11 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       case "building": {
         const result = e.building(request.building);
         self.postMessage({ id: request.id, ok: true, result } satisfies WorkerResponse, { transfer: buffers(buildingMeshList(result)) });
+        break;
+      }
+      case "slider": {
+        const result = e.slider(request.type, request.variant);
+        self.postMessage({ id: request.id, ok: true, result } satisfies WorkerResponse, { transfer: buffers([result]) });
         break;
       }
       case "support": {

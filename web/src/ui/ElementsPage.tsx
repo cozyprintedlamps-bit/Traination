@@ -1,10 +1,10 @@
 // Step 2: the kinds of pieces and their parameters, plus the track settings.
 import { useState } from "react";
 import { useAppState, useStore } from "../app/context";
-import { ELEMENT_KINDS, elementShape, outline, takesStuds } from "../core/track";
-import { LEDGE_ROWS_MAX, STUD_KINDS } from "../presets/bricks";
+import { CATEGORY_IDS, ELEMENT_KINDS, categoryOfKind, elementShape, ledgeSides, outline, takesLever, takesStuds } from "../core/track";
+import { STUD_KINDS, maxRows } from "../presets/bricks";
 import type { StudKind } from "../presets/bricks";
-import type { ElementKind, ElementType } from "../core/track";
+import type { ElementKind, ElementType, StudLedge } from "../core/track";
 import { printerById } from "../presets/print";
 import { PEG_REACH } from "../presets/gauge";
 import { Choice, ColorPicker, Field, Notice, NumberField, Section, Toggle } from "./components";
@@ -35,8 +35,14 @@ export function ElementsPage() {
   return (
     <>
       <Section title={tr("elements.list")}>
+        {CATEGORY_IDS.map((category) => {
+          const list = project.elements.filter((e) => categoryOfKind(e.kind) === category);
+          if (list.length === 0) return null;
+          return (
+            <div key={category}>
+              <h4 className="subhead">{tr(`ecat.${category}` as TextKey)}</h4>
         <div className="card-list">
-          {project.elements.map((e) => {
+          {list.map((e) => {
             const n = used(e.id);
             return (
               <button key={e.id} type="button" className={`card${e.id === t?.id ? " selected" : ""}`} onClick={() => store.select({ element: e.id })}>
@@ -51,6 +57,9 @@ export function ElementsPage() {
             );
           })}
         </div>
+            </div>
+          );
+        })}
         <div className="row">
           <select className="input" value={newKind} onChange={(e) => setNewKind(e.target.value as ElementKind)} aria-label={tr("elements.add")}>
             {ELEMENT_KINDS.map((k) => (
@@ -97,26 +106,22 @@ export function ElementsPage() {
               <Choice value={t.adapter} options={[{ value: "male", label: tr("gender.male") }, { value: "female", label: tr("gender.female") }]} onChange={(adapter) => set({ adapter })} />
             </Field>
           )}
+          {takesLever(t.kind) && <Toggle label={tr("field.lever")} hint={tr("field.lever_hint")} checked={t.lever === true} onChange={(lever) => set({ lever })} />}
           {takesStuds(t.kind) ? (
             <>
               <h4 className="subhead">{tr("studs.title")}</h4>
-              <Field label={tr("studs.kind")}>
-                <Choice<StudKind> value={t.studs} options={STUD_KINDS.map((k) => ({ value: k, label: tr(`studs.${k}` as TextKey) }))} onChange={(studs) => set({ studs })} />
-              </Field>
-              {t.studs !== "none" && (
-                <>
-                  <Field label={tr("studs.side")}>
-                    <Choice
-                      value={t.studSide}
-                      options={(["left", "right", "both"] as const).map((s) => ({ value: s, label: tr(`side.${s}` as TextKey) }))}
-                      onChange={(studSide) => set({ studSide })}
-                    />
-                  </Field>
-                  <Field label={tr("studs.rows")}>
-                    <Choice value={t.studRows} options={Array.from({ length: LEDGE_ROWS_MAX }, (_, i) => ({ value: i + 1, label: String(i + 1) }))} onChange={(studRows) => set({ studRows })} />
-                  </Field>
-                </>
-              )}
+              {(["left", "right"] as const).map((side) => {
+                const ledge = ledgeSides(t)[side];
+                const put = (patch: Partial<StudLedge>) => set({ studs: { ...ledgeSides(t), [side]: { ...ledge, ...patch } } });
+                return (
+                  <div key={side} className="stud-side" data-testid={`studs-${side}`}>
+                    <Field label={tr(side === "left" ? "studs.left" : "studs.right")}>
+                      <Choice<StudKind> value={ledge.kind} options={STUD_KINDS.map((k) => ({ value: k, label: tr(`studs.${k}` as TextKey) }))} onChange={(kind) => put({ kind, rows: Math.min(ledge.rows, maxRows(kind)) })} />
+                    </Field>
+                    {ledge.kind !== "none" && <NumberField label={tr("studs.rows")} value={ledge.rows} min={1} max={maxRows(ledge.kind)} step={1} unit="" onChange={(rows) => put({ rows: Math.round(rows) })} />}
+                  </div>
+                );
+              })}
               <p className="muted small">{tr("studs.hint")}</p>
             </>
           ) : null}

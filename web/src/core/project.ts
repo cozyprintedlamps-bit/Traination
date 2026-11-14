@@ -5,15 +5,18 @@ import { DEFAULT_CONNECTOR_FIT, DEFAULT_PRINTER } from "../presets/print";
 import { closeGap } from "./autoclose";
 import { analyze, attach, nextPort, rotate } from "./layout";
 import type { Layout, Piece, WorldPort } from "./layout";
-import { PLAIN, ELEMENT_KINDS, elementShape, ledges, makeElement, newId, pathLength, pointAt, standardElements } from "./track";
-import type { ElementType } from "./track";
-import { BUILDING_KINDS, SHED_OPENING, makeBuilding } from "./buildings";
-import type { Building } from "./buildings";
+import { PLAIN, ELEMENT_KINDS, NO_LEDGE, elementShape, ledges, makeElement, newId, noStuds, pathLength, pointAt, standardElements } from "./track";
+import type { ElementType, StudSides } from "./track";
+import { BUILDING_KINDS, OVER_TRACK, TUNNEL_CLEARANCE, makeBuilding } from "./buildings";
+import type { Building, BuildingKind } from "./buildings";
 import { COUPLERS, DECORS, DEFAULT_DESIGN, DEFAULT_FITS, VEHICLE_KINDS, makeVehicle } from "./vehicle";
 import type { Fits, Vehicle, VehicleColors, VehicleKind } from "./vehicle";
 
-/** 2: buildings, seven colour slots per vehicle (was: accent), design with decoration. */
-export const SCHEMA_VERSION = 2;
+/**
+ * 2: buildings, seven colour slots per vehicle (was: accent), design with decoration.
+ * 3: stud ledges per side ({ left, right } with kind and rows), switches with a lever.
+ */
+export const SCHEMA_VERSION = 3;
 export const FILE_EXTENSION = ".trproj";
 
 export interface Settings {
@@ -48,8 +51,26 @@ export const DEFAULT_SETTINGS: Settings = {
 
 // ------------------------------------------------------------------------------ templates
 
-export type TemplateId = "oval" | "circle" | "oval_large" | "siding" | "passing" | "yard" | "eight" | "hill" | "eight_bridge" | "lego" | "empty";
-export const TEMPLATES: readonly TemplateId[] = ["oval", "circle", "oval_large", "siding", "passing", "yard", "eight", "hill", "eight_bridge", "lego", "empty"];
+export type TemplateId =
+  | "oval"
+  | "oval_large"
+  | "heart"
+  | "snake"
+  | "dogbone"
+  | "eight"
+  | "siding"
+  | "passing"
+  | "yard"
+  | "terminus"
+  | "hill"
+  | "eight_bridge"
+  | "mountain"
+  | "lego"
+  | "empty";
+/** The ready-made tracks ("demo tracks"), in the order the page shows them. */
+export const DEMO_TEMPLATES: readonly TemplateId[] = ["oval", "oval_large", "heart", "snake", "dogbone", "eight", "siding", "passing", "yard", "terminus", "hill", "eight_bridge", "mountain", "lego"];
+/** Every template: the demo tracks and the empty plan ("build your own track"). */
+export const TEMPLATES: readonly TemplateId[] = [...DEMO_TEMPLATES, "empty"];
 
 type Turn = "left" | "right";
 /** A step of a chain: an element id, or an element id with a turn. */
@@ -92,13 +113,36 @@ class TemplateBuilder {
 
   /** Pieces one after the other, starting at a free end; returns the last piece. */
   chain(from: WorldPort, steps: ChainStep[]): string {
-    let last = "";
+    return this.chainAll(from, steps).at(-1) ?? "";
+  }
+
+  /** Like chain, but returns every piece added. */
+  chainAll(from: WorldPort, steps: ChainStep[]): string[] {
+    const ids: string[] = [];
     for (const step of steps) {
       const [type, turn] = typeof step === "string" ? [step, undefined] : step;
+      const last = ids.at(-1);
       // the last piece may close a loop: ask for its free end only when another piece follows
-      last = this.add(type, last ? this.end(last) : from, turn ? { turn } : {});
+      ids.push(this.add(type, last ? this.end(last) : from, turn ? { turn } : {}));
     }
-    return last;
+    return ids;
+  }
+
+  /** A building over a piece of the plan (a tunnel): in its middle, along its track. */
+  over(piece: string, kind: BuildingKind, patch: Partial<Building> = {}): Building {
+    const analysis = analyze(this.layout, this.types);
+    const p = this.layout.pieces.find((x) => x.id === piece);
+    const type = p && this.types.find((t) => t.id === p.type);
+    const pose = analysis.poses.get(piece);
+    const path = type && p ? elementShape(type, p.variant).paths[0] : undefined;
+    if (!pose || !path) throw new Error("no piece to build over");
+    const mid = pointAt(path, pathLength(path) / 2);
+    const [x, y] = rotate(mid.x, mid.y, pose.rotation);
+    // a curved tunnel turns left in its own frame: over a right-hand curve it is turned around
+    const right = path.kind === "arc" && path.sweep < 0;
+    const rotation = mid.heading + pose.rotation + (right ? 180 : 0);
+    const length = path.kind === "line" ? path.length : undefined;
+    return { ...makeBuilding(kind), x: pose.x + x, y: pose.y + y, rotation, ...(length ? { length } : {}), ...patch, fromTemplate: true };
   }
 
   /** Joins two free ends with "close the track". */
@@ -116,30 +160,98 @@ const small = (turn: Turn, n: number) => times(n, ["curve-small", turn]);
 
 /** Element types some templates need besides the standard ones. */
 export function templateTypes(): ElementType[] {
-  // the crossing of the figure eight: its arms fit two 108 mm straights and the large curves exactly
-  return [makeElement("crossing", { id: "crossing-148", length: 148 })];
+  const studs = (left: StudSides["left"], right: StudSides["right"]): StudSides => ({ left, right });
+  return [
+    // the crossing of the figure eight: its arms fit two 108 mm straights and the large curves exactly
+    makeElement("crossing", { id: "crossing-148", length: 148 }),
+    // the stud town: LEGO studs inside the loop (two rows), DUPLO studs outside
+    makeElement("straight", { id: "straight-216-mixed", length: 216, studs: studs({ kind: "lego", rows: 2 }, { kind: "duplo", rows: 1 }) }),
+    makeElement("curve", { id: "curve-large-mixed", studs: studs({ kind: "lego", rows: 2 }, { ...NO_LEDGE }) }),
+    // the heart: two of these on each side bring the tip exactly below the notch (2 × 182 = 2 × R)
+    makeElement("straight", { id: "straight-182", length: 182 }),
+  ];
 }
 
-/** The plan of a template and the element types it uses (the given ones plus what it adds). */
-export function buildTemplate(id: TemplateId, elements: ElementType[]): { layout: Layout; elements: ElementType[] } {
+export interface TemplateResult {
+  layout: Layout;
+  elements: ElementType[];
+  /** buildings that belong to the track (tunnels, platforms, stud plates), marked as from the template */
+  buildings: Building[];
+}
+
+/** The plan of a template, the element types it uses (the given ones plus what it adds) and its buildings. */
+export function buildTemplate(id: TemplateId, elements: ElementType[]): TemplateResult {
   const have = new Set(elements.map((e) => e.id));
   const t = new TemplateBuilder([...elements, ...templateTypes().filter((e) => !have.has(e.id))]);
   const loop = (first: string, steps: ChainStep[]) => t.chain(t.end(t.root(first)), steps);
+  const loopAll = (first: string, steps: ChainStep[]) => {
+    const root = t.root(first);
+    return [root, ...t.chainAll(t.end(root), steps)];
+  };
+  const buildings: Building[] = [];
+  /** the user's own buildings are placed beside these pieces first */
+  let prefer: string[] = [];
   switch (id) {
     case "empty":
       break;
     case "oval":
       loop("straight-144", [...large("left", 4), "straight-144", ...large("left", 4)]);
       break;
-    case "circle":
-      loop("curve-small", small("left", 7));
-      break;
     case "oval_large":
       loop("straight-216", ["straight-216", ...large("left", 4), "straight-216", "straight-216", ...large("left", 4)]);
       break;
-    case "lego":
-      loop("straight-216-lego", ["straight-216-lego", ...large("left", 4), "straight-216-lego", "straight-216-lego", ...large("left", 4)]);
+    case "heart": {
+      // starts in the notch at the top, going right: up over the right lobe, down to the tip and back
+      loop("curve-large", [...large("right", 4), "straight-182", "straight-182", ...large("right", 2), "straight-182", "straight-182", ...large("right", 4), ["curve-large", "left"]]);
       break;
+    }
+    case "snake": {
+      // an oval whose far side wiggles in two S-bends of small curves; a calculated straight closes it
+      const root = t.root("straight-216");
+      const last = t.chain(t.end(root), [
+        "straight-216",
+        "straight-54",
+        ...large("left", 4),
+        ...small("left", 1),
+        ...small("right", 2),
+        ...small("left", 2),
+        ...small("right", 2),
+        ...small("left", 1),
+        ...large("left", 4),
+      ]);
+      t.close(t.end(last), t.end(root, 0));
+      break;
+    }
+    case "dogbone":
+      // two tracks side by side with a balloon loop at each end
+      loop("straight-216", ["straight-216", ["curve-large", "right"], ...large("left", 6), ["curve-large", "right"], "straight-216", "straight-216", ["curve-large", "right"], ...large("left", 6), ["curve-large", "right"]]);
+      break;
+    case "lego": {
+      // the stud town: LEGO studs on the inside of the loop, DUPLO studs outside, stud plates inside
+      loop("straight-216-mixed", ["straight-216-mixed", ...times(4, ["curve-large-mixed", "left"]), "straight-216-mixed", "straight-216-mixed", ...times(4, ["curve-large-mixed", "left"])]);
+      buildings.push({ ...makeBuilding("plate_lego"), x: 136, y: 182, fromTemplate: true }, { ...makeBuilding("plate_duplo"), x: 296, y: 182, fromTemplate: true });
+      break;
+    }
+    case "mountain": {
+      // a long oval that runs through a hill: a straight tunnel and two curved ones after it
+      const ids = loopAll("straight-216", ["straight-216", ...large("left", 4), "straight-216", "straight-216", ...large("left", 4)]);
+      const [s, c1, c2] = [ids[7] as string, ids[8] as string, ids[9] as string];
+      buildings.push(t.over(s, "tunnel"), t.over(c1, "tunnel_curve"), t.over(c2, "tunnel_curve"));
+      break;
+    }
+    case "terminus": {
+      // an oval with a terminus: three tracks that end at buffer stops, platforms beside them
+      const a = t.root("switch-right");
+      t.chain(t.end(a, 1), ["straight-216", "straight-216", ...large("left", 4), "straight-216", "straight-216", "straight-144", ...large("left", 4)]);
+      const b = t.chain(t.end(a, 2), [["curve-large", "left"], "switch-right"]);
+      const track1 = t.chainAll(t.end(b, 1), ["straight-216", "buffer"]);
+      const c = t.chain(t.end(b, 2), [["curve-large", "left"], "switch-right"]);
+      const track2 = t.chainAll(t.end(c, 1), ["straight-216", "buffer"]);
+      const track3 = t.chainAll(t.end(c, 2), [["curve-large", "left"], "straight-216", "buffer"]);
+      prefer = [track1[0], track2[0], track3[1]].filter((p): p is string => p !== undefined);
+      buildings.push({ ...makeBuilding("station_town"), fromTemplate: true }, { ...makeBuilding("platform"), fromTemplate: true }, { ...makeBuilding("platform"), fromTemplate: true });
+      break;
+    }
     case "siding": {
       // an oval with a switch, from which a short siding with a buffer stop branches off
       const sw = t.root("switch-right");
@@ -208,7 +320,8 @@ export function buildTemplate(id: TemplateId, elements: ElementType[]): { layout
   }
   // only the template types that are used stay
   const used = new Set(t.layout.pieces.map((p) => p.type));
-  return { layout: t.layout, elements: t.types.filter((e) => have.has(e.id) || used.has(e.id)) };
+  const types = t.types.filter((e) => have.has(e.id) || used.has(e.id));
+  return { layout: t.layout, elements: types, buildings: arrangeBuildings(t.layout, types, buildings, false, prefer) };
 }
 
 /** The plan of a template (for element lists that already hold every type it needs). */
@@ -238,7 +351,8 @@ export function newProject(template: TemplateId = "oval"): Project {
     elements: built.elements,
     layout: built.layout,
     vehicles: [makeVehicle("steam"), makeVehicle("tender"), makeVehicle("box"), makeVehicle("passenger")],
-    buildings: template === "empty" ? [] : defaultBuildings(built.layout, built.elements),
+    // no buildings of its own: only those that belong to the ready-made track
+    buildings: built.buildings,
     settings: structuredClone(DEFAULT_SETTINGS),
   };
 }
@@ -249,14 +363,16 @@ const BUILDING_GAP = 6;
 /**
  * Moves buildings that stand on the track (or on each other) to a free spot beside a straight:
  * large ones beside its middle, facing the track, small ones (signals) at its ends. Buildings that
- * are in the way and find no spot go below the plan. `force`: place every one anew.
+ * are in the way and find no spot go below the plan. `force`: place every one anew. Buildings over
+ * the track (tunnels, sheds, the hall) stay where they are. The straights of the pieces in `prefer`
+ * are tried first.
  */
-export function arrangeBuildings(layout: Layout, types: readonly ElementType[], buildings: readonly Building[], force = false): Building[] {
+export function arrangeBuildings(layout: Layout, types: readonly ElementType[], buildings: readonly Building[], force = false, prefer: readonly string[] = []): Building[] {
   const analysis = analyze(layout, types);
   const typeOf = new Map(types.map((t) => [t.id, t]));
   /** points of the track centre lines with the half width of the track there */
   const samples: [number, number, number][] = [];
-  const straights: { x: number; y: number; heading: number; length: number; left: number; right: number }[] = [];
+  const straights: { x: number; y: number; heading: number; length: number; left: number; right: number; piece: string }[] = [];
   for (const piece of layout.pieces) {
     const type = typeOf.get(piece.type);
     const pose = analysis.poses.get(piece.id);
@@ -272,7 +388,7 @@ export function arrangeBuildings(layout: Layout, types: readonly ElementType[], 
       }
       if (type.kind === "straight" && path.kind === "line" && Math.abs(pose.z) < 0.5) {
         const [x, y] = rotate(path.x, path.y, pose.rotation);
-        straights.push({ x: x + pose.x, y: y + pose.y, heading: path.heading + pose.rotation, length, ...side });
+        straights.push({ x: x + pose.x, y: y + pose.y, heading: path.heading + pose.rotation, length, ...side, piece: piece.id });
       }
     }
   }
@@ -296,14 +412,16 @@ export function arrangeBuildings(layout: Layout, types: readonly ElementType[], 
     return b.length > 40 ? [...middle, ...ends] : [...ends, ...middle];
   };
   const lowest = samples.reduce((m, [, y, half]) => Math.min(m, y - half), 0);
+  const rank = (piece: string) => (prefer.includes(piece) ? prefer.indexOf(piece) : prefer.length);
+  const ordered = [...straights].sort((a, b) => rank(a.piece) - rank(b.piece));
   let aside = 0;
   for (const b of buildings) {
-    if (!force && free(b)) {
+    if (OVER_TRACK.has(b.kind) || (!force && free(b))) {
       placed.push(b);
       continue;
     }
     let spot: Building | undefined;
-    for (const s of straights) {
+    for (const s of ordered) {
       spot = spots(b, s).find(free);
       if (spot) break;
     }
@@ -317,18 +435,14 @@ export function arrangeBuildings(layout: Layout, types: readonly ElementType[], 
   return placed;
 }
 
-/** A station beside a straight of the plan, facing the track, and a signal at the end of a straight. */
-export function defaultBuildings(layout: Layout, types: readonly ElementType[]): Building[] {
-  return arrangeBuildings(layout, types, [makeBuilding("station"), makeBuilding("signal")], true);
-}
-
-/** Headroom above the track top under the lowest bridge of the plan, for the height check of vehicles. */
+/** Headroom above the track top under the lowest bridge, tunnel or shed of the plan, for the height check of vehicles. */
 export function clearance(project: Project): number {
   const used = new Set(project.layout.pieces.map((p) => p.type));
   const bridges = project.elements.filter((e) => e.kind === "bridge" && used.has(e.id)).map((e) => e.height);
   const underBridge = Math.min(BRIDGE_HEIGHT, ...bridges) - BRIDGE_DECK - TRACK_HEIGHT;
-  const sheds = (project.buildings ?? []).some((b) => b.kind === "shed");
-  return sheds ? Math.min(underBridge, SHED_OPENING.height - TRACK_HEIGHT) : underBridge;
+  // tunnels, portals and sheds share the bore; the hall is higher than any bridge
+  const covered = (project.buildings ?? []).some((b) => OVER_TRACK.has(b.kind) && b.kind !== "station_hall");
+  return covered ? Math.min(underBridge, TUNNEL_CLEARANCE) : underBridge;
 }
 
 // ------------------------------------------------------------------------------ files
@@ -338,6 +452,26 @@ export function serialize(project: Project): string {
 }
 
 export class ProjectFileError extends Error {}
+
+/** Stud ledges of a stored element: schema 3 has { left, right }; schema 2 had one kind, a side and rows. */
+function readStuds(e: unknown): StudSides {
+  const raw = e as { studs?: unknown; studSide?: unknown; studRows?: unknown };
+  const ledge = (v: unknown) => {
+    const l = v as { kind?: unknown; rows?: unknown } | undefined;
+    const kind = l?.kind === "lego" || l?.kind === "duplo" ? l.kind : "none";
+    return { kind, rows: typeof l?.rows === "number" ? l.rows : 1 } as StudSides["left"];
+  };
+  if (typeof raw.studs === "object" && raw.studs !== null) {
+    const s = raw.studs as { left?: unknown; right?: unknown };
+    return { left: ledge(s.left), right: ledge(s.right) };
+  }
+  if (raw.studs === "lego" || raw.studs === "duplo") {
+    const one = { kind: raw.studs, rows: typeof raw.studRows === "number" ? raw.studRows : 1 } as StudSides["left"];
+    const side = raw.studSide === "left" || raw.studSide === "right" ? raw.studSide : "both";
+    return { left: side !== "right" ? one : { ...NO_LEDGE }, right: side !== "left" ? { ...one } : { ...NO_LEDGE } };
+  }
+  return noStuds();
+}
 
 /** Reads a project file; fills in what older or hand-made files leave out. */
 export function deserialize(text: string): Project {
@@ -353,7 +487,15 @@ export function deserialize(text: string): Project {
   if (raw.schema > SCHEMA_VERSION) throw new ProjectFileError("too_new");
   const base = newProject("empty");
   const elements = Array.isArray(raw.elements)
-    ? raw.elements.filter((e) => ELEMENT_KINDS.includes(e?.kind)).map((e) => ({ ...makeElement(e.kind), ...e }))
+    ? raw.elements
+        .filter((e) => ELEMENT_KINDS.includes(e?.kind))
+        .map((e) => {
+          // schema 2 fields that schema 3 keeps in `studs`
+          const { studSide: _side, studRows: _rows, ...rest } = e as ElementType & { studSide?: unknown; studRows?: unknown };
+          void _side;
+          void _rows;
+          return { ...makeElement(e.kind), ...rest, studs: readStuds(e), lever: e.lever === true };
+        })
     : base.elements;
   const vehicles = Array.isArray(raw.vehicles)
     ? raw.vehicles

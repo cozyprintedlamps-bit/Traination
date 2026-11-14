@@ -51,7 +51,7 @@ async function trackParts(engine: EngineClient, project: Project, analysis: Anal
 async function buildingParts(engine: EngineClient, b: Building, highlight: boolean): Promise<ScenePart[]> {
   const m = await engine.building(b);
   const at = (mesh: typeof m.base, color: string): ScenePart => ({ mesh: mesh.mesh, color, x: b.x, y: b.y, z: 0, rotation: b.rotation, highlight });
-  return [at(m.base, b.colors.walls), ...(m.roof ? [at(m.roof, b.colors.roof)] : []), ...(m.details ? [at(m.details, b.colors.details)] : [])];
+  return [at(m.base, b.colors.walls), ...m.roofs.map((r) => at(r, b.colors.roof)), ...(m.details ? [at(m.details, b.colors.details)] : [])];
 }
 
 /** A vehicle in place: chassis bottom above the track top, body on the deck. */

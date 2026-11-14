@@ -62,6 +62,10 @@ export class EngineClient implements MeshSource {
     return this.send({ op: "printElement", type: strip(type), variant, options });
   }
 
+  slider(type: ElementType, variant: Variant): Promise<PartMesh> {
+    return this.send({ op: "slider", type: strip(type), variant });
+  }
+
   vehicle(vehicle: Vehicle, fits: Fits): Promise<VehicleMeshes> {
     // name and colours do not change the geometry
     const colors = { chassis: "", body: "", roof: "", details: "", load: "", decor: "", wheels: "" };
@@ -74,7 +78,9 @@ export class EngineClient implements MeshSource {
 
   building(building: Building): Promise<BuildingMeshes> {
     // position and colours do not change the geometry
-    return this.send({ op: "building", building: { ...building, id: "", x: 0, y: 0, rotation: 0, colors: { walls: "", roof: "", details: "" } } });
+    const { fromTemplate: _from, ...shape } = building;
+    void _from;
+    return this.send({ op: "building", building: { ...shape, id: "", x: 0, y: 0, rotation: 0, colors: { walls: "", roof: "", details: "" } } });
   }
 }
 

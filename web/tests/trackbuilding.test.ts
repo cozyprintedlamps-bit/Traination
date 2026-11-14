@@ -7,7 +7,7 @@ import { analyze } from "../src/core/layout";
 import type { WorldPort } from "../src/core/layout";
 import { printedMaterial } from "../src/core/material";
 import { TEMPLATES, TRAIN_TEMPLATE_IDS, newProject, trainTemplate } from "../src/core/project";
-import { footprint } from "../src/core/buildings";
+import { OVER_TRACK, footprint } from "../src/core/buildings";
 import { PLAIN, elementShape, makeElement, pathLength, pointAt, sleeperGaps, standardElements } from "../src/core/track";
 import { createEngine } from "../src/geometry/engine";
 import type { Engine } from "../src/geometry/engine";
@@ -72,7 +72,7 @@ describe("close the track with fitting pieces", () => {
 });
 
 describe("templates", () => {
-  it.each(TEMPLATES.filter((t) => t !== "empty"))("%s: the buildings stand beside the track", (id) => {
+  it.each(TEMPLATES.filter((t) => t !== "empty"))("%s: no buildings of its own; what belongs to it stands beside the track", (id) => {
     const project = newProject(id);
     const a = analyze(project.layout, project.elements);
     const typeOf = new Map(project.elements.map((e) => [e.id, e]));
@@ -89,8 +89,10 @@ describe("templates", () => {
         }
       }
     }
-    expect(project.buildings.length).toBeGreaterThan(0);
-    for (const b of project.buildings) {
+    // only tunnels, platforms and plates that belong to the track, all marked as from the template
+    expect(project.buildings.every((b) => b.fromTemplate === true)).toBe(true);
+    expect(project.buildings.some((b) => b.kind === "station" || b.kind === "signal")).toBe(false);
+    for (const b of project.buildings.filter((x) => !OVER_TRACK.has(x.kind))) {
       const corners = footprint(b);
       // no track centre point inside the footprint grown by half a track width
       for (const [x, y] of points) {
@@ -102,14 +104,48 @@ describe("templates", () => {
     }
   });
 
-  it("applying a template moves buildings off the new track", () => {
-    const store = new Store(newProject("oval"));
+  it("applying a template moves the user's buildings off the new track and replaces its own", () => {
+    const store = new Store(newProject("mountain"));
+    expect(store.getState().project.buildings.filter((b) => b.kind.startsWith("tunnel"))).toHaveLength(3);
+    store.addBuilding("station");
+    const own = store.getState().project.buildings.at(-1)!;
+    // the crossing of the eight lies around (74, 0)
+    store.changeBuilding(own.id, { x: 74, y: 0 });
     store.applyTemplate("eight");
     const { project } = store.getState();
     const station = project.buildings.find((b) => b.kind === "station");
     expect(station).toBeDefined();
-    // the crossing of the eight lies around the origin; the station is not on it
     expect(Math.hypot((station?.x ?? 0) - 74, station?.y ?? 0)).toBeGreaterThan(60);
+    // the tunnels of the mountain line are gone
+    expect(project.buildings.some((b) => b.kind.startsWith("tunnel"))).toBe(false);
+  });
+
+  it("a tunnel of a template lies over its piece of track", () => {
+    const project = newProject("mountain");
+    const a = analyze(project.layout, project.elements);
+    for (const t of project.buildings.filter((b) => OVER_TRACK.has(b.kind))) {
+      // the middle of the tunnel is on the centre line of some piece
+      const near = project.layout.pieces.some((piece) => {
+        const pose = a.poses.get(piece.id)!;
+        const type = project.elements.find((e) => e.id === piece.type)!;
+        const path = elementShape(type, piece.variant).paths[0]!;
+        const mid = pointAt(path, pathLength(path) / 2);
+        const r = (pose.rotation * Math.PI) / 180;
+        return Math.hypot(pose.x + mid.x * Math.cos(r) - mid.y * Math.sin(r) - t.x, pose.y + mid.x * Math.sin(r) + mid.y * Math.cos(r) - t.y) < 0.5;
+      });
+      expect(near, t.kind).toBe(true);
+    }
+  });
+
+  it("'build your own track' empties the plan and drops the template's buildings, undo brings them back", () => {
+    const store = new Store(newProject("lego"));
+    const before = store.getState().project;
+    expect(before.buildings.length).toBe(2);
+    store.startOwnTrack();
+    expect(store.getState().project.layout.pieces).toHaveLength(0);
+    expect(store.getState().project.buildings).toHaveLength(0);
+    store.undo();
+    expect(store.getState().project.layout.pieces).toHaveLength(before.layout.pieces.length);
   });
 
   it.each(TRAIN_TEMPLATE_IDS)("the train template %s starts with a locomotive", (id) => {
@@ -123,6 +159,7 @@ describe("placing and clearing", () => {
   it("clears the whole track, undo brings it back", () => {
     const store = new Store(newProject("oval"));
     const before = store.getState().project.layout.pieces.length;
+    store.addBuilding("house");
     store.clearTrack();
     expect(store.getState().project.layout.pieces).toHaveLength(0);
     expect(store.getState().project.buildings.length).toBeGreaterThan(0);

@@ -9,10 +9,10 @@ import type { PartMesh } from "../src/core/mesh";
 import { TEMPLATES, newProject } from "../src/core/project";
 import type { TemplateId } from "../src/core/project";
 import { route, trainPoses } from "../src/core/route";
-import { PLAIN, standardElements } from "../src/core/track";
+import { PLAIN, makeElement, standardElements } from "../src/core/track";
 import { CATEGORIES, DEFAULT_FITS, KINDS_BY_CATEGORY, chassisSizes, makeVehicle } from "../src/core/vehicle";
 import type { Vehicle } from "../src/core/vehicle";
-import { BUILDING_KINDS, makeBuilding } from "../src/core/buildings";
+import { BUILDING_CATEGORIES, BUILDING_CATEGORY_IDS, BUILDING_KINDS, makeBuilding } from "../src/core/buildings";
 import type { Building } from "../src/core/buildings";
 import { supports } from "../src/core/supports";
 import { createEngine } from "../src/geometry/engine";
@@ -194,7 +194,7 @@ function layoutItems(engine: Engine, template: TemplateId): Item[] {
 function buildingItems(engine: Engine, b: Building): Item[] {
   const m = engine.building(b);
   const at = (part: PartMesh, color: string): Item => ({ part, x: b.x, y: b.y, z: 0, rotation: b.rotation, color: hex(color) });
-  return [at(m.base, b.colors.walls), ...(m.roof ? [at(m.roof, b.colors.roof)] : []), ...(m.details ? [at(m.details, b.colors.details)] : [])];
+  return [at(m.base, b.colors.walls), ...m.roofs.map((r) => at(r, b.colors.roof)), ...(m.details ? [at(m.details, b.colors.details)] : [])];
 }
 
 it.skipIf(!process.env.TRAINATION_RENDER)(
@@ -222,6 +222,20 @@ it.skipIf(!process.env.TRAINATION_RENDER)(
       ...(cm.inside ? [{ part: cm.inside, x: 0, y: 0, z: 0, color: [40, 120, 200] as RGB }] : []),
     ], -0.6, 0.5, 1000, 700);
     render("buildings", BUILDING_KINDS.flatMap((k, i) => buildingItems(engine, { ...makeBuilding(k), name: "BAHNHOF", x: (i % 4) * 260, y: -Math.floor(i / 4) * 160 })), -0.5, 0.6);
+    for (const category of BUILDING_CATEGORY_IDS) {
+      render(`buildings-${category}`, BUILDING_CATEGORIES[category].flatMap((k, i) => buildingItems(engine, { ...makeBuilding(k), name: "BAHNHOF", x: i * 270, y: 0 })), -0.45, 0.5, 1400, 700);
+    }
+    // switches with a lever (slider in place, route A open), and the sliders as printed; studs on both sides
+    const levers = [makeElement("switch", { hand: "left", lever: true }), makeElement("switch", { hand: "right", lever: true }), makeElement("yswitch", { lever: true })];
+    render("levers", [
+      ...levers.map((e, i) => ({ part: engine.element(e, PLAIN, opts), x: i * 260, y: 0, z: 0, color: wood })),
+      ...levers.map((e, i) => ({ part: engine.slider(e, PLAIN), x: i * 260, y: -150, z: 0, color: hex("#C12E1F") })),
+    ], -0.5, 0.7, 1400, 800);
+    const studded = [
+      makeElement("straight", { length: 216, studs: { left: { kind: "lego", rows: 3 }, right: { kind: "duplo", rows: 2 } } }),
+      makeElement("curve", { studs: { left: { kind: "lego", rows: 4 }, right: { kind: "lego", rows: 2 } } }),
+    ];
+    render("studs", studded.map((e, i) => ({ part: engine.element(e, PLAIN, opts), x: i * 300, y: 0, z: 0, color: wood })), -0.5, 0.75, 1400, 800);
     // close-ups of sleepers, viaduct ramps, bridge pillars and supports
     const byId = new Map(elements.map((e) => [e.id, e]));
     const detail = ["straight-144", "curve-large", "buffer", "ramp-1", "ramp-2", "bridge"].map((id, i) => ({ part: engine.element(byId.get(id)!, PLAIN, opts), x: (i % 3) * 280, y: -Math.floor(i / 3) * 140, z: 0, color: wood }));

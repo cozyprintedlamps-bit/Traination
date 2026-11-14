@@ -13,7 +13,7 @@ import { MAX_FIT_ANGLE, MAX_FIT_RADIUS, MIN_FILL_LENGTH, MIN_FIT_RADIUS, PEG_REA
 import { BED_SPACING } from "../presets/print";
 import { analyze, attach, meets, poseAgainst, toWorld } from "./layout";
 import type { Layout, Piece, WorldPort } from "./layout";
-import { elementShape, makeElement, normDeg, outline } from "./track";
+import { elementShape, hasStuds, makeElement, normDeg, outline } from "./track";
 import type { ElementType, Gender } from "./track";
 
 export type CloseError = "no_pair" | "height" | "angle" | "no_route";
@@ -293,10 +293,10 @@ function costOf(steps: Step[], segments: Segment[]): number {
  */
 export function closeGap(types: readonly ElementType[], a: WorldPort, b: WorldPort, context: CloseContext = {}): CloseResult | CloseError {
   if (Math.abs(a.z - b.z) > 0.5) return "height";
-  const curves = types.filter((t) => t.kind === "curve" && t.studs === "none" && t.id.startsWith("curve-"));
+  const curves = types.filter((t) => t.kind === "curve" && !hasStuds(t) && t.id.startsWith("curve-"));
   const large = types.find((t) => t.id === "curve-large") ?? curves[0];
   const color = large?.color ?? types[0]?.color;
-  const straightTypes = types.filter((t) => t.kind === "straight" && t.studs === "none" && t.id.startsWith("straight-"));
+  const straightTypes = types.filter((t) => t.kind === "straight" && !hasStuds(t) && t.id.startsWith("straight-"));
   const bed = context.bed ?? [256, 256];
   const fitted = new Map<string, boolean>();
   const builder: Builder = {
@@ -382,8 +382,8 @@ function build(steps: Step[], types: readonly ElementType[], a: WorldPort, b: Wo
     const all = [...types, ...newTypes];
     const have =
       spec.kind === "straight"
-        ? all.find((t) => t.kind === "straight" && t.studs === "none" && Math.abs(t.length - spec.length) < 0.05)
-        : all.find((t) => t.kind === "curve" && t.studs === "none" && Math.abs(t.radius - spec.radius) < 0.05 && Math.abs(t.angle - spec.angle) < 0.005);
+        ? all.find((t) => t.kind === "straight" && !hasStuds(t) && Math.abs(t.length - spec.length) < 0.05)
+        : all.find((t) => t.kind === "curve" && !hasStuds(t) && Math.abs(t.radius - spec.radius) < 0.05 && Math.abs(t.angle - spec.angle) < 0.005);
     if (have) return have;
     const made = spec.kind === "straight" ? makeElement("straight", { length: spec.length, ...(color ? { color } : {}) }) : makeElement("curve", { radius: spec.radius, angle: spec.angle, ...(color ? { color } : {}) });
     newTypes.push(made);

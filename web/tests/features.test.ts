@@ -10,6 +10,7 @@ import { CATEGORIES, KINDS_BY_CATEGORY, VEHICLE_KINDS, categoryOf } from "../src
 import { createEngine } from "../src/geometry/engine";
 import type { Engine } from "../src/geometry/engine";
 import { buildingItems, vehicleItems } from "../src/export/printItems";
+import { makeBuilding } from "../src/core/buildings";
 import type { Names } from "../src/export/printItems";
 
 const elements = standardElements();
@@ -113,7 +114,7 @@ describe("vehicles and buildings", () => {
   });
 
   it("buildings are saved with the project, old files get colour slots", () => {
-    const p = newProject("oval");
+    const p = newProject("mountain");
     expect(p.buildings.length).toBeGreaterThan(0);
     expect(deserialize(serialize(p))).toEqual(p);
     const old = deserialize(JSON.stringify({ schema: 1, vehicles: [{ kind: "box", colors: { accent: "#123456", body: "#FFFFFF" } }] }));
@@ -148,7 +149,11 @@ describe("print parts", () => {
   });
 
   it("buildings print walls with details, and the roof on its own", async () => {
-    const items = await buildingItems(newProject("oval"), engine, names);
+    const project = newProject("oval");
+    project.buildings = [makeBuilding("station"), makeBuilding("station_town")];
+    const items = await buildingItems(project, engine, names);
     expect(items.some((i) => i.name.startsWith("station") && i.name.endsWith("roof"))).toBe(true);
+    // the town station has two roofs: the main roof and the spire of the tower
+    expect(items.filter((i) => i.name.startsWith("station_town") && /roof/.test(i.name))).toHaveLength(2);
   });
 });
