@@ -2,12 +2,12 @@
 // the status, and the stations and buildings beside the track.
 import { useState } from "react";
 import { useAppState, useStore } from "../app/context";
-import { BUILDING_KINDS, BUILDING_LIMITS } from "../core/buildings";
-import type { Building, BuildingKind } from "../core/buildings";
-import { TEMPLATES } from "../core/project";
+import { BUILDING_CATEGORIES, BUILDING_CATEGORY_IDS, BUILDING_LIMITS, HAS_SIGN, IS_PLATE } from "../core/buildings";
+import type { Building, BuildingCategory, BuildingKind } from "../core/buildings";
+import { DEMO_TEMPLATES } from "../core/project";
 import type { TemplateId } from "../core/project";
 import { supports } from "../core/supports";
-import { standsOnGround } from "../core/track";
+import { CATEGORY_IDS, categoryOfKind, standsOnGround } from "../core/track";
 import type { ElementType } from "../core/track";
 import { Field, Notice, NumberField, Section } from "./components";
 import { BuildingIcon, KindIcon } from "./Icon";
@@ -22,17 +22,21 @@ function BuildingEditor({ b }: { b: Building }) {
   const store = useStore();
   const limits = BUILDING_LIMITS[b.kind];
   const set = (patch: Partial<Building>) => store.changeBuilding(b.id, patch);
+  const plate = b.kind === "plate_lego" ? 8 : b.kind === "plate_duplo" ? 16 : 1;
   return (
     <>
       <p className="strong">{buildingName(b)}</p>
-      {(b.kind === "station" || b.kind === "house" || b.kind === "signalbox") && (
+      {HAS_SIGN.has(b.kind) && (
         <Field label={tr("field.sign")} hint={tr("field.sign_hint")}>
           <input className="input" value={b.name} maxLength={12} onChange={(e) => set({ name: e.target.value })} />
         </Field>
       )}
-      <NumberField label={tr("field.length")} value={b.length} min={limits.length[0]} max={limits.length[1]} onChange={(length) => set({ length })} />
-      <NumberField label={tr("field.width")} value={b.width} min={limits.width[0]} max={limits.width[1]} onChange={(width) => set({ width })} />
-      <NumberField label={tr("field.bheight")} value={b.height} min={limits.height[0]} max={limits.height[1]} onChange={(height) => set({ height })} />
+      {limits.length[0] < limits.length[1] && (
+        <NumberField label={tr("field.length")} value={b.length} min={limits.length[0]} max={limits.length[1]} step={plate} onChange={(length) => set({ length })} />
+      )}
+      <NumberField label={tr("field.width")} value={b.width} min={limits.width[0]} max={limits.width[1]} step={plate} onChange={(width) => set({ width })} />
+      {limits.height[0] < limits.height[1] && <NumberField label={tr("field.bheight")} value={b.height} min={limits.height[0]} max={limits.height[1]} onChange={(height) => set({ height })} />}
+      {IS_PLATE.has(b.kind) && <p className="muted small">{tr("buildings.plate_hint")}</p>}
       <div className="row">
         <button type="button" className="button" onClick={() => set({ rotation: (b.rotation + 45) % 360 })}>
           {tr("buildings.turn")} 45°
@@ -52,6 +56,7 @@ export function TrackPage() {
   const analysis = useAnalysis(project);
   const [closeMessage, setCloseMessage] = useState<{ kind: "ok" | "warning"; text: string } | null>(null);
   const [askClear, setAskClear] = useState(false);
+  const [buildingCategory, setBuildingCategory] = useState<BuildingCategory>("stations");
   const target = store.currentTarget();
   const typeOf = new Map(project.elements.map((e) => [e.id, e]));
   const selected = project.layout.pieces.find((p) => p.id === selection.piece);
@@ -83,18 +88,37 @@ export function TrackPage() {
     <>
       <Section title={tr("track.templates")}>
         <div className="choices">
-          {TEMPLATES.map((id: TemplateId) => (
-            <button key={id} type="button" className="chip" onClick={() => store.applyTemplate(id)}>
+          {DEMO_TEMPLATES.map((id: TemplateId) => (
+            <button key={id} type="button" className="chip" data-testid={`template-${id}`} onClick={() => store.applyTemplate(id)}>
               {tr(`template.${id}` as TextKey)}
             </button>
           ))}
         </div>
+        <p className="muted small">{tr("track.demo_hint")}</p>
+        <button
+          type="button"
+          className="button primary own-track"
+          data-testid="own-track"
+          onClick={() => {
+            store.startOwnTrack();
+            setCloseMessage({ kind: "ok", text: tr("track.own_started") });
+          }}
+        >
+          ✎ {tr("track.own")}
+        </button>
+        <p className="muted small">{tr("track.own_hint")}</p>
       </Section>
 
       <Section title={tr("track.add")}>
         <p className="muted small">{target && targetType ? tr("track.target", { name: elementName(targetType) }) : project.layout.pieces.length > 0 ? tr("track.target_none") : tr("track.add_hint")}</p>
+        {CATEGORY_IDS.map((category) => {
+          const list = project.elements.filter((t) => categoryOfKind(t.kind) === category);
+          if (list.length === 0) return null;
+          return (
+            <div key={category} className="palette-group">
+              <h4 className="subhead">{tr(`ecat.${category}` as TextKey)}</h4>
         <div className="palette-list">
-          {project.elements.map((t) => (
+          {list.map((t) => (
             <div key={t.id} className="palette-item" draggable onDragStart={(e) => startElementDrag(e, t.id)} data-testid={`element-${t.id}`}>
               <span className="palette-icon" style={{ color: t.color }}>
                 <KindIcon kind={t.kind} />
@@ -119,6 +143,9 @@ export function TrackPage() {
             </div>
           ))}
         </div>
+            </div>
+          );
+        })}
         <p className="muted small">{tr("track.add_hint")}</p>
         <p className="muted small">{tr("track.drag_hint")}</p>
       </Section>
@@ -198,15 +225,22 @@ export function TrackPage() {
       </Section>
 
       <Section title={tr("buildings.title")}>
+        <div className="choices" role="tablist">
+          {BUILDING_CATEGORY_IDS.map((c) => (
+            <button key={c} type="button" role="tab" aria-selected={c === buildingCategory} className={`chip${c === buildingCategory ? " selected" : ""}`} data-testid={`bcat-${c}`} onClick={() => setBuildingCategory(c)}>
+              {tr(`bcat.${c}` as TextKey)}
+            </button>
+          ))}
+        </div>
         <div className="building-grid">
-          {BUILDING_KINDS.map((kind: BuildingKind) => (
-            <button key={kind} type="button" className="tile" onClick={() => store.addBuilding(kind)}>
+          {BUILDING_CATEGORIES[buildingCategory].map((kind: BuildingKind) => (
+            <button key={kind} type="button" className="tile" data-testid={`building-${kind}`} onClick={() => store.addBuilding(kind)}>
               <BuildingIcon kind={kind} />
               <span>{tr(`bkind.${kind}` as TextKey)}</span>
             </button>
           ))}
         </div>
-        <p className="muted small">{tr("buildings.hint")}</p>
+        <p className="muted small">{tr(buildingCategory === "tunnels" ? "buildings.tunnel_hint" : "buildings.hint")}</p>
         <h4 className="subhead">{tr("buildings.selected")}</h4>
         {building ? <BuildingEditor b={building} /> : <p className="muted small">{tr("buildings.none")}</p>}
       </Section>

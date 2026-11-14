@@ -172,7 +172,7 @@ export function buildChassis(wasm: ManifoldToplevel, v: Vehicle, fits: Fits): Ma
   for (const sign of [1, -1]) chassis = chassis.add(roundedBlock(wasm, 4, W, 1, 0, s.deckBottom, sign * (L / 2 - 2), 0));
   const front = coupler(wasm, v, v.front, fits, s);
   const rear = coupler(wasm, v, v.rear, fits, s)?.mirror([1, 0, 0]);
-  const extra = [front, rear, cowcatcher(wasm, v, s), ...buffers(wasm, v, s)].filter((m): m is Manifold => m !== undefined);
+  const extra = [front, rear, cowcatcher(wasm, v, s), ...buffers(wasm, v, s), ...(v.kind === "cyberbrick" ? [] : runningGear(wasm, v, s))].filter((m): m is Manifold => m !== undefined);
   if (extra.length > 0) chassis = chassis.add(Manifold.union(extra));
   // axle holes through skirts and beam
   chassis = chassis.subtract(Manifold.union(s.axles.map((a) => cylinderY(wasm, s.axleHole / 2, W + 2, a.x, a.z))));
@@ -205,6 +205,59 @@ function sideRecesses(wasm: ManifoldToplevel, half: number, xs: number[], w: num
 function windowRow(x0: number, x1: number, step: number): number[] {
   const n = Math.max(1, Math.floor((x1 - x0) / step));
   return Array.from({ length: n }, (_, i) => x0 + ((x1 - x0) * (i + 0.5)) / n);
+}
+
+/** Details stand at most this far off a wall: they print as a small ledge, without support. */
+const RELIEF = 0.8;
+
+/** A raised bar along both side walls (y = ±half) from x0 to x1, centred at height z. */
+function sideBar(wasm: ManifoldToplevel, half: number, x0: number, x1: number, z: number, height = 1, out = RELIEF): Manifold {
+  return wasm.Manifold.union([box(wasm, [x0, x1, half - 0.3, half + out, z - height / 2, z + height / 2]), box(wasm, [x0, x1, -half - out, -half + 0.3, z - height / 2, z + height / 2])]);
+}
+
+/** Louvres: thin horizontal slots in both side walls between x0 and x1, z0 and z1. */
+function louvres(wasm: ManifoldToplevel, half: number, x0: number, x1: number, z0: number, z1: number, pitch = 2.2): Manifold | undefined {
+  const slots: Manifold[] = [];
+  for (let z = z0; z + 1 <= z1; z += pitch) slots.push(sideRecesses(wasm, half, [(x0 + x1) / 2], x1 - x0, z, z + 1, 0.6));
+  return slots.length > 0 ? wasm.Manifold.union(slots) : undefined;
+}
+
+/** Planks: narrow upright grooves in both side walls, about `pitch` apart, leaving out [skip0, skip1]. */
+function planks(wasm: ManifoldToplevel, half: number, x0: number, x1: number, z0: number, z1: number, pitch = 5, skip?: [number, number]): Manifold | undefined {
+  const xs = windowRow(x0, x1, pitch).filter((x) => !skip || x < skip[0] || x > skip[1]);
+  return xs.length > 0 ? sideRecesses(wasm, half, xs, 0.8, z0, z1, 0.5) : undefined;
+}
+
+/** Bands round a boiler or tank (along X, radius r, axis at height cz), standing out a little. */
+function bands(wasm: ManifoldToplevel, xs: number[], r: number, cz: number, above: number): Manifold {
+  const rings = xs.map((x) => cylinderX(wasm, r + 0.5, x - 0.7, x + 0.7, 0, cz).subtract(cylinderX(wasm, r - 1, x - 1, x + 1, 0, cz)));
+  return wasm.Manifold.union(rings).intersect(box(wasm, [-500, 500, -r - 2, r + 2, above, cz + r + 2]));
+}
+
+/**
+ * The running gear on the outer face of the skirts: an axle box with a leaf spring over every
+ * axle; a steam locomotive also gets coupling rods. Reliefs of at most 1.5 mm.
+ */
+function runningGear(wasm: ManifoldToplevel, v: Vehicle, s: ChassisSizes): Manifold[] {
+  const list: Manifold[] = [];
+  const top = s.deckBottom - 0.2;
+  const rods = (v.kind === "steam" || v.kind === "tankloco") && s.axles.length > 1;
+  for (const sign of [1, -1]) {
+    const face = (sign * s.width) / 2;
+    const span = (out: number): [number, number] => (sign > 0 ? [face - 0.3, face + out] : [face - out, face + 0.3]);
+    const [y0, y1] = span(RELIEF);
+    for (const a of s.axles) {
+      list.push(box(wasm, [a.x - 3, a.x + 3, y0, y1, Math.max(0.3, a.z - 3), Math.min(top, a.z + 3)]));
+      if (a.z + 4.4 <= top) list.push(box(wasm, [a.x - 7, a.x + 7, y0, y1, a.z + 3.4, a.z + 4.4]));
+    }
+    if (rods) {
+      const xs = s.axles.map((a) => a.x);
+      const z = (s.axles[0] as ChassisSizes["axles"][number]).z;
+      const [r0, r1] = span(1.5);
+      list.push(box(wasm, [Math.min(...xs) - 3, Math.max(...xs) + 3, r0, r1, Math.max(0.3, z - 1), Math.min(top, z + 1)]));
+    }
+  }
+  return list;
 }
 
 /**
@@ -283,9 +336,23 @@ function steamBody(wasm: ManifoldToplevel, v: Vehicle, H: number, tank: boolean)
     parts.push(box(wasm, [x0, cabStart + 1, -HALF, HALF, 0, H * 0.62]));
   }
   let body = Manifold.union(parts);
-  if (v.design.windows) body = body.subtract(sideRecesses(wasm, HALF, [cabStart + cab / 2], Math.min(12, cab - 10), H - 17, H - 8));
+  if (v.design.windows) {
+    body = body.subtract(sideRecesses(wasm, HALF, [cabStart + cab / 2], Math.min(12, cab - 10), H - 17, H - 8));
+    // round windows in the front wall of the cab, above the boiler
+    if (H - 9 - 3 > cz + r + 1) body = body.subtract(Manifold.union([-8, 8].map((y) => cylinderX(wasm, 2.6, cabEnd - 1.5, cabEnd + 1, y, H - 9))));
+  }
   const sections: Section[] = [roof];
   const top = cz + r;
+  // a sand dome on the boiler, bands round it, cylinders beside the smokebox
+  const sandX = cabEnd + (x1 - 12 - cabEnd) * 0.22;
+  body = body.add(Manifold.cylinder(r + 2, 3.2, 3.2, SEG).translate([sandX, 0, cz])).add(Manifold.sphere(3.2, SEG).translate([sandX, 0, cz + r + 2]));
+  const detail: Manifold[] = [bands(wasm, [cabEnd + 3, (cabEnd + x1 - 6) / 2, x1 - 7], r, cz, 4.2)];
+  for (const y of [HALF - 3.6, -HALF + 3.6]) detail.push(cylinderX(wasm, 3.6, x1 - 16, x1 - 5, y, 4 + 3.6));
+  // the smokebox door with its handle (unless the front has a face)
+  if (!v.design.face) detail.push(cylinderX(wasm, r - 2.5, x1 - 0.01, x1 + 0.8, 0, cz), cylinderX(wasm, 0.7, x1 + 0.8, x1 + 1.8, 0, cz));
+  sections.push({ slot: "details", solid: Manifold.union(detail) });
+  // a whistle on the cab roof (printed with the roof)
+  sections.push({ slot: "details", solid: Manifold.cylinder(4.5, 1, 0.8, 16).translate([cabEnd - 5, 0, H - 2]).add(Manifold.cylinder(1, 1.6, 1.6, 16).translate([cabEnd - 5, 0, H + 2.5])), onRoof: true });
   if (v.design.chimney !== "none") {
     const hc = v.design.chimney === "tall" ? 13 : v.design.chimney === "funnel" ? 11 : 7;
     const cx = x1 - 12;
@@ -334,12 +401,23 @@ function dieselBody(wasm: ManifoldToplevel, v: Vehicle, H: number): BodyShape {
     body = body.subtract(sideRecesses(wasm, HALF, [cabStart + cab / 2], cab - 10, H - 16, H - 8));
     if (!shunter) body = body.subtract(box(wasm, [x1 - 1.5, x1 + 1, -11, 11, H - 16, H - 8]));
   }
-  const hoodLen = shunter ? cabStart - x0 : cabStart - x0;
-  body = body.subtract(sideRecesses(wasm, 12, [(cabStart + x0) / 2], Math.max(8, hoodLen - 14), 6, hoodH - 5, 0.8));
-  const frontX = shunter ? x1 : x1;
+  const hoodLen = cabStart - x0;
+  // louvres in the side of the hood(s), a handrail above them, a fan and the exhaust on top
+  const grilles = [louvres(wasm, 12, x0 + 7, cabStart - 7, 6, hoodH - 6)];
+  if (shunter) grilles.push(louvres(wasm, 12, cabEnd + 5, x1 - 5, 6, hoodH - 6));
+  for (const g of grilles) if (g) body = body.subtract(g);
+  const fanX = (cabStart + x0) / 2;
+  body = body.subtract(Manifold.cylinder(1, Math.min(7, hoodLen / 2 - 4), Math.min(7, hoodLen / 2 - 4), SEG).translate([fanX, 0, hoodH - 0.8]));
+  body = body.add(Manifold.cylinder(3, 1.8, 1.8, 24).translate([cabStart - 6, 0, hoodH - 0.5]));
+  // a door in each side of the cab, below the window
+  body = body.subtract(sideRecesses(wasm, HALF, [cabStart + 5], 6, 4, H - 18, 0.8));
+  const detail: Manifold[] = [sideBar(wasm, 12, x0 + 4, cabStart - 2, hoodH - 3, 0.8)];
+  // fan blades in the recess: a cross
+  detail.push(box(wasm, [fanX - 6, fanX + 6, -0.5, 0.5, hoodH - 0.8, hoodH - 0.3]), box(wasm, [fanX - 0.5, fanX + 0.5, -6, 6, hoodH - 0.8, hoodH - 0.3]));
+  const frontX = x1;
   return {
     body,
-    sections: [roof],
+    sections: [roof, { slot: "details", solid: Manifold.union(detail) }],
     band: shunter ? { x0: cabStart + 2, x1: cabEnd - 2, z0: 3, z1: H - 18, half: HALF } : { x0: x0 + 4, x1: cabStart - 4, z0: 4, z1: hoodH - 2, half: 12 },
     face: shunter ? { x: x1, z: hoodH / 2, r: Math.min(hoodH / 2 - 1, 10) } : { x: x1, z: (H - 8) / 2 + 1, r: Math.min((H - 8) / 2 - 1, 10) },
     lamps: { x: frontX, spots: [[-8, 6], [8, 6]] },
@@ -354,6 +432,9 @@ function electricBody(wasm: ManifoldToplevel, v: Vehicle, H: number, highspeed: 
   const top = H - (highspeed ? 0 : 6);
   const { full, roof } = roofed(wasm, v, x0, x1, HALF, top);
   let body = full;
+  // doors near both ends, a skirt line along the bottom
+  body = body.subtract(sideRecesses(wasm, HALF, [x0 + 9, x1 - (highspeed ? 40 : 9)], 6, 3, top - 5, 0.8));
+  const trim = sideBar(wasm, HALF, x0 + 2, x1 - 2, 2.2, 1);
   if (highspeed) {
     // a long sloped nose at the front
     const nose = sideProfile(
@@ -370,18 +451,39 @@ function electricBody(wasm: ManifoldToplevel, v: Vehicle, H: number, highspeed: 
     body = body.intersect(nose);
     roof.solid = roof.solid.intersect(nose);
   }
+  const trimmed = highspeed ? trim.intersect(sideProfile(wasm, [[x0 - 1, -1], [x1 + 1, -1], [x1 + 1, top * 0.32], [x1 - 34, top + 2], [x0 - 1, top + 2]], HALF + 2)) : trim;
   if (v.design.windows) {
     const xs = windowRow(x0 + 14, x1 - (highspeed ? 38 : 14), 16);
     body = body.subtract(sideRecesses(wasm, HALF, xs, 9, top - 15, top - 8));
     if (!highspeed) body = body.subtract(box(wasm, [x1 - 1.5, x1 + 1, -10, 10, top - 15, top - 7]));
     body = body.subtract(box(wasm, [x0 - 1, x0 + 1.5, -10, 10, top - 15, top - 7]));
   }
-  const sections: Section[] = [roof];
+  const sections: Section[] = [roof, { slot: "details", solid: trimmed }];
+  // equipment boxes on the roof (printed with the roof)
+  const boxZ = top - (v.design.roof === "round" ? 2 : v.design.roof === "peaked" ? 4 : 1);
+  const kit = (highspeed ? [x0 + L * 0.3, x0 + L * 0.55] : [-L / 4, L / 4]).map((x) => roundedBlock(wasm, 12, 9, 1.5, boxZ, top + 2, x, 0));
+  sections.push({ slot: "details", solid: Manifold.union(kit), onRoof: true });
   if (!highspeed) {
-    // pantograph: a base and a standing frame, prints without support
+    // pantograph: insulators, a base, a mast and arms opening upward at 45° to the contact strip;
+    // every face looks up or sideways, so it prints without support
     const pz = top - (v.design.roof === "round" ? 1.5 : v.design.roof === "peaked" ? 0 : 0.5);
-    const bow = box(wasm, [-1, 1, -9, 9, pz, pz + 7]).subtract(box(wasm, [-2, 2, -7, 7, pz + 0.01, pz + 5]));
-    const panto = Manifold.union([box(wasm, [-6, 6, -6, 6, pz - 1, pz + 1.5]), bow]);
+    const arms = wasm.CrossSection.ofPolygons([
+      [
+        [-1, pz + 3],
+        [1, pz + 3],
+        [1, pz + 4],
+        [9, pz + 12],
+        [9, pz + 13.5],
+        [-9, pz + 13.5],
+        [-9, pz + 12],
+        [-1, pz + 4],
+      ],
+    ])
+      .extrude(2)
+      .rotate([90, 0, 90])
+      .translate([-1, 0, 0]);
+    const insulators = [-5, 5].flatMap((x) => [-4.5, 4.5].map((y) => Manifold.cylinder(2.5, 1.4, 1.1, 16).translate([x, y, pz - 1])));
+    const panto = Manifold.union([box(wasm, [-6, 6, -6, 6, pz - 1, pz + 1.5]), box(wasm, [-1, 1, -1, 1, pz + 1, pz + 4]), arms, ...insulators]);
     // details on the roof go with the roof (one part): the pantograph is a detail without its own mount
     sections.push({ slot: "details", solid: panto, onRoof: true });
   }
@@ -403,8 +505,12 @@ function wagonBody(wasm: ManifoldToplevel, v: Vehicle, H: number): BodyShape {
   switch (v.kind) {
     case "tender": {
       const floor = H - 6;
+      // a water hatch at the back, planks on the sides
+      const hatch = Manifold.cylinder(2.5, 3.5, 3.5, SEG).translate([x0 + 8, 0, floor]);
+      const lines = planks(wasm, HALF, x0 + 3, x1 - 3, 3, H - 3, 6);
+      const shell = openBox(wasm, L, HALF, H, floor).add(hatch);
       return {
-        body: openBox(wasm, L, HALF, H, floor),
+        body: lines ? shell.subtract(lines) : shell,
         sections: v.design.load ? [loadSection(heap(wasm, L - 6, HALF * 2 - 6, floor, 7), floor, [[0, 0]])] : [],
         band: plainBand(3, H - 3),
       };
@@ -434,7 +540,9 @@ function wagonBody(wasm: ManifoldToplevel, v: Vehicle, H: number): BodyShape {
         .extrude(HALF * 2 - 4.8)
         .rotate([90, 0, 0])
         .translate([0, HALF - 2.4, 0]);
-      const body = shell.subtract(inner);
+      // upright ribs on the sides where the walls reach the deck
+      const ribBars = windowRow(-bottom / 2 + 3, bottom / 2 - 3, 9).map((x) => Manifold.union([box(wasm, [x - 0.7, x + 0.7, HALF - 0.3, HALF + RELIEF, 0, H - 1]), box(wasm, [x - 0.7, x + 0.7, -HALF - RELIEF, -HALF + 0.3, 0, H - 1])]));
+      const body = shell.subtract(inner).add(Manifold.union(ribBars));
       const floor = 6.2;
       return {
         body,
@@ -448,7 +556,8 @@ function wagonBody(wasm: ManifoldToplevel, v: Vehicle, H: number): BodyShape {
       const saddle = box(wasm, [x0 + 2, x1 - 2, -12, 12, 0, Math.max(3, cz - r + 3)]);
       const tank = cylinderX(wasm, r, x0 + 2, x1 - 2, 0, cz).intersect(box(wasm, [x0, x1, -r - 1, r + 1, 0, H + 1]));
       const caps = Manifold.union([cylinderX(wasm, r - 1.5, x0, x0 + 2.5, 0, cz), cylinderX(wasm, r - 1.5, x1 - 2.5, x1, 0, cz)]).intersect(box(wasm, [x0 - 1, x1 + 1, -r, r, 0, H]));
-      const sections: Section[] = [{ slot: "details", solid: caps }];
+      // bands round the tank (above the saddle)
+      const sections: Section[] = [{ slot: "details", solid: caps.add(bands(wasm, [x0 + L * 0.22, x1 - L * 0.22], r, cz, Math.max(3, cz - r + 3))) }];
       let body = Manifold.union([saddle, tank]);
       if (v.design.dome) {
         const dome = Manifold.cylinder(r + 4, 5, 5, SEG).translate([0, 0, cz]).add(Manifold.sphere(5, SEG).translate([0, 0, cz + r + 4]));
@@ -471,7 +580,9 @@ function wagonBody(wasm: ManifoldToplevel, v: Vehicle, H: number): BodyShape {
             box(wasm, [x - 1.5, x + 1.5, -HALF, -HALF + 3, 3, Math.max(H, 10)]),
           ])
         : [];
-      const body = Manifold.union([deck, ...stakes]);
+      // planks of the deck: grooves along the wagon
+      const deckLines = Manifold.union([-10, -5, 0, 5, 10].map((y) => box(wasm, [x0 + 2, x1 - 2, y - 0.4, y + 0.4, 2.4, 4])));
+      const body = Manifold.union([deck, ...stakes]).subtract(deckLines);
       const sections: Section[] = [];
       const loadPins: [number, number][] = [[-L / 6, 0], [L / 6, 0]];
       if (v.kind === "flat" && v.design.load) {
@@ -509,8 +620,9 @@ function wagonBody(wasm: ManifoldToplevel, v: Vehicle, H: number): BodyShape {
           ],
           3,
         );
-        const hook = cylinderX(wasm, 2, -L / 6 + 32, -L / 6 + 38, 0, 33);
-        sections.push({ slot: "details", solid: Manifold.union([turret, cab, jib, hook]), mount: { z: 3, pins: [[-L / 6, 0]] } });
+        // a pulley block on the tip of the jib (sits on it, nothing hangs down)
+        const pulley = box(wasm, [-L / 6 + 31, -L / 6 + 37, -2, 2, 33, 36]);
+        sections.push({ slot: "details", solid: Manifold.union([turret, cab, jib, pulley]), mount: { z: 3, pins: [[-L / 6, 0]] } });
         if (v.design.load) sections.push(loadSection(roundedBlock(wasm, 18, 20, 1, 3, 12, L / 3 - 4, 0), 3, [[L / 3 - 4, 0]]));
       }
       return { body, sections, band: { x0: x0 + 2, x1: x1 - 2, z0: 0.3, z1: 2.7, half: HALF } };
@@ -527,12 +639,20 @@ function closedWagon(wasm: ManifoldToplevel, v: Vehicle, H: number, x0: number, 
   let body = full;
   const L = x1 - x0;
   let band: Band = { x0: x0 + 4, x1: x1 - 4, z0: 3, z1: Math.min(roofZ - 2, 12), half: HALF };
+  const extra: Section[] = [];
+  /** small things on the roof (vents, hatches, a chimney): printed with the roof */
+  const onRoof = (solid: Manifold) => extra.push({ slot: "details", solid, onRoof: true });
+  const roofTop = (y: number) => (v.design.roof === "round" ? H - 4 * (y / HALF) ** 2 : v.design.roof === "peaked" ? H - Math.min(HALF * 0.55, 9) * (Math.abs(y) / HALF) : H);
   switch (v.kind) {
     case "box":
     case "mail": {
       const door = Math.min(26, L * 0.35);
       const frame = sideRecesses(wasm, HALF, [0], door, 3, roofZ - 3, 0.8).subtract(sideRecesses(wasm, HALF + 0.01, [0], door - 3, 4.5, roofZ - 4.5, 2));
       body = body.subtract(frame);
+      // planks beside the door, the rail the door runs on
+      const lines = planks(wasm, HALF, x0 + 3, x1 - 3, 3, roofZ - 3, 5, [-door / 2 - 2, door / 2 + 2]);
+      if (lines) body = body.subtract(lines);
+      extra.push({ slot: "details", solid: sideBar(wasm, HALF, -door, door, roofZ - 2, 1) });
       if (v.kind === "mail" && v.design.windows) body = body.subtract(sideRecesses(wasm, HALF, [x0 + L * 0.18, x1 - L * 0.18], 6, roofZ - 8, roofZ - 4));
       band = { x0: x0 + 3, x1: -door / 2 - 2, z0: 3, z1: roofZ - 3, half: HALF };
       break;
@@ -540,6 +660,8 @@ function closedWagon(wasm: ManifoldToplevel, v: Vehicle, H: number, x0: number, 
     case "reefer": {
       const ribs = sideRecesses(wasm, HALF, windowRow(x0 + 3, x1 - 3, 7), 1.2, 2, roofZ - 2, 0.7);
       body = body.subtract(ribs);
+      // ice hatches at both ends of the roof
+      onRoof(Manifold.union([x0 + 9, x1 - 9].map((x) => roundedBlock(wasm, 8, 8, 1, roofTop(4) - 1.5, H + 1.5, x, 0))));
       band = { x0: x0 + 4, x1: x1 - 4, z0: roofZ / 2 - 4, z1: roofZ / 2 + 4, half: HALF };
       break;
     }
@@ -549,6 +671,8 @@ function closedWagon(wasm: ManifoldToplevel, v: Vehicle, H: number, x0: number, 
       const cupola = roundedBlock(wasm, L * 0.36, 22, 2, roofZ, H + 9, 0, 0);
       const cupolaWindows = sideRecesses(wasm, 11, [0], L * 0.2, H + 2, H + 7, 1);
       roof.solid = roof.solid.add(cupola.subtract(cupolaWindows));
+      // the stove pipe at the far end of the roof
+      onRoof(Manifold.cylinder(H + 6 - (roofTop(0) - 1.5), 1.5, 1.5, 24).translate([x1 - 7, 0, roofTop(0) - 1.5]));
       band = { x0: x0 + 4, x1: x1 - 4, z0: 3, z1: roofZ - 13, half: HALF };
       break;
     }
@@ -563,13 +687,16 @@ function closedWagon(wasm: ManifoldToplevel, v: Vehicle, H: number, x0: number, 
           body = body.subtract(sideRecesses(wasm, HALF, xs, width, mid + 3, roofZ - 3)).subtract(sideRecesses(wasm, HALF, xs, width, 4, mid - 3));
         } else body = body.subtract(sideRecesses(wasm, HALF, xs, width, roofZ - 12, roofZ - 3));
       }
-      // doors at both ends
+      // doors at both ends, each with a small window
       body = body.subtract(sideRecesses(wasm, HALF, [x0 + 6, x1 - 6], 7, 3, roofZ - 1, 1));
+      body = body.subtract(sideRecesses(wasm, HALF, [x0 + 6, x1 - 6], 4, roofZ - 10, roofZ - 4, 1.8));
+      // a line along the side below the windows, vents on the roof
+      if (rows === 1) extra.push({ slot: "details", solid: sideBar(wasm, HALF, x0 + 11, x1 - 11, roofZ - 13.5, 1) });
+      onRoof(Manifold.union(windowRow(x0 + 14, x1 - 14, 22).map((x) => Manifold.cylinder(3.5, 1.8, 1.8, 24).translate([x, 0, roofTop(0) - 1.5]))));
       band = rows === 2 ? { x0: x0 + 12, x1: x1 - 12, z0: roofZ / 2 - 2.5, z1: roofZ / 2 + 2.5, half: HALF } : { x0: x0 + 12, x1: x1 - 12, z0: 2, z1: roofZ - 14, half: HALF };
     }
   }
-  void Manifold;
-  return { body, sections: [roof], band };
+  return { body, sections: [roof, ...extra], band };
 }
 
 /** The shape of a body by its kind. */

@@ -9,7 +9,8 @@ import type { Fits, Vehicle } from "../core/vehicle";
 import { buildBuilding } from "./buildings";
 import { createKernel } from "./kernel";
 import type { KernelOptions } from "./kernel";
-import { buildElement, buildSupport, printFlipped } from "./track";
+import { leverLayout } from "../core/lever";
+import { buildElement, buildSlider, buildSupport, printFlipped, printSlider } from "./track";
 import type { TrackOptions } from "./track";
 import { buildVehicle } from "./vehicle";
 import type { SlotKey } from "./vehicle";
@@ -28,13 +29,16 @@ export interface VehicleMeshes {
 
 export interface BuildingMeshes {
   base: PartMesh;
-  roof?: PartMesh;
+  /** roof parts, each printed on its own flat bottom (modelled in place) */
+  roofs: PartMesh[];
   details?: PartMesh;
 }
 
 export interface Engine {
-  /** the element as it lies in the plan */
+  /** the element as it lies in the plan (a switch with a lever: with its slider, route A open) */
   element(type: ElementType, variant: Variant, options: TrackOptions): PartMesh;
+  /** the slider of a switch with a lever as it is printed */
+  slider(type: ElementType, variant: Variant): PartMesh;
   /** the element as it is printed (bridges upside down) */
   printElement(type: ElementType, variant: Variant, options: TrackOptions): PartMesh;
   support(height: number, plain: boolean): PartMesh;
@@ -76,7 +80,18 @@ export async function createEngine(options: KernelOptions = {}): Promise<Engine>
     }
   };
   return {
-    element: (type, variant, opts) => run(() => summarize(buildElement(wasm, type, variant, opts))),
+    element: (type, variant, opts) =>
+      run(() => {
+        const solid = buildElement(wasm, type, variant, opts);
+        const lever = leverLayout(type, variant);
+        return summarize(lever ? solid.add(buildSlider(wasm, lever)) : solid);
+      }),
+    slider: (type, variant) =>
+      run(() => {
+        const lever = leverLayout(type, variant);
+        if (!lever) throw new Error("this element has no lever");
+        return summarize(printSlider(wasm, lever));
+      }),
     printElement: (type, variant, opts) =>
       run(() => {
         const solid = buildElement(wasm, type, variant, opts);
@@ -105,7 +120,7 @@ export async function createEngine(options: KernelOptions = {}): Promise<Engine>
         const base = s.details ? s.base.subtract(s.details) : s.base;
         return {
           base: summarize(base),
-          ...(s.roof ? { roof: summarize(s.roof.solid) } : {}),
+          roofs: s.roofs.map((r) => summarize(r.solid)),
           ...(s.details ? { details: summarize(s.details) } : {}),
         };
       }),
@@ -118,5 +133,5 @@ export function vehicleMeshList(m: VehicleMeshes): PartMesh[] {
 }
 
 export function buildingMeshList(m: BuildingMeshes): PartMesh[] {
-  return [m.base, ...(m.roof ? [m.roof] : []), ...(m.details ? [m.details] : [])];
+  return [m.base, ...m.roofs, ...(m.details ? [m.details] : [])];
 }

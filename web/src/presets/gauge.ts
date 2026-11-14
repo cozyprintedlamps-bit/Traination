@@ -95,3 +95,25 @@ export const ARCH_FOOT = 3;
 export const ARCH_CROWN = 4;
 /** openings lower than this are left out */
 export const ARCH_MIN_HEIGHT = 12;
+
+/**
+ * Switches with a lever: a slider lies in the track. Its blade fills the part of the widened groove
+ * at the switch point that only the other route uses; pushing or pulling the knob moves it across
+ * by one groove width. The slider is a separate print part (printed upside down).
+ */
+/** clearance around blade, post and arm (whole size) */
+export const LEVER_FIT = 0.4;
+/** width of the arm and the post along the track */
+export const LEVER_ARM_WIDTH = 4;
+/** the post sits where the two grooves have moved this far apart */
+export const LEVER_POST_SPREAD = 4.6;
+/** the blade starts where it is this wide (its thin front edge would break) */
+export const LEVER_BLADE_MIN = 0.8;
+/** the arm passes this far below the floor of an open groove */
+export const LEVER_LOW_CLEAR = 0.6;
+/** the knob outside the track: along the track, outward, and its gap to the track in the inner position */
+export const LEVER_KNOB_LENGTH = 12;
+export const LEVER_KNOB_DEPTH = 8;
+export const LEVER_KNOB_GAP = 0.8;
+/** the slider stays this much below the top of the track */
+export const LEVER_TOP_GAP = 0.2;

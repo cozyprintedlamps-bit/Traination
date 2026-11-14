@@ -7,6 +7,7 @@ import { analyze, partsList } from "../core/layout";
 import type { PartMesh } from "../core/mesh";
 import type { Project } from "../core/project";
 import { supportParts, supports } from "../core/supports";
+import { hasLever } from "../core/track";
 import type { ElementType, Variant } from "../core/track";
 import type { Fits, Vehicle } from "../core/vehicle";
 import type { BuildingMeshes, VehicleMeshes } from "../geometry/engine";
@@ -18,12 +19,13 @@ type MaybePromise<T> = T | Promise<T>;
 
 export interface MeshSource {
   printElement(type: ElementType, variant: Variant, options: TrackOptions): MaybePromise<PartMesh>;
+  slider(type: ElementType, variant: Variant): MaybePromise<PartMesh>;
   support(height: number, plain: boolean): MaybePromise<PartMesh>;
   vehicle(vehicle: Vehicle, fits: Fits): MaybePromise<VehicleMeshes>;
   building(building: Building): MaybePromise<BuildingMeshes>;
 }
 
-export type PartName = "chassis" | "body" | "wheel" | "axle" | "worm" | "wormWheel" | "support" | "base" | SlotKey;
+export type PartName = "chassis" | "body" | "wheel" | "axle" | "worm" | "wormWheel" | "support" | "base" | "slider" | SlotKey;
 
 export interface Names {
   element(type: ElementType, variant: Variant): string;
@@ -42,6 +44,8 @@ export async function trackItems(project: Project, source: MeshSource, names: Na
     if (!type) continue;
     const part = await source.printElement(type, entry.variant, trackOptions(project));
     items.push({ name: names.element(type, entry.variant), color: type.color, part, count: entry.count });
+    // a switch with a lever: its slider is a print part of its own
+    if (hasLever(type)) items.push({ name: `${names.element(type, entry.variant)} – ${names.part("slider")}`, color: type.color, part: await source.slider(type, entry.variant), count: entry.count });
   }
   const color = project.elements[0]?.color ?? "#8E9089";
   for (const s of supportParts(supports(project.layout, project.elements, analyze(project.layout, project.elements)))) {
@@ -90,7 +94,7 @@ export async function buildingItems(project: Project, source: MeshSource, names:
       count: 1,
       ...(m.details ? { volumes: [{ name: `${name} – ${names.part("details")}`, color: b.colors.details, part: m.details }] } : {}),
     });
-    if (m.roof) items.push({ name: `${name} – ${names.part("roof")}`, color: b.colors.roof, part: onBed(m.roof), count: 1 });
+    m.roofs.forEach((roof, i) => items.push({ name: `${name} – ${names.part("roof")}${m.roofs.length > 1 ? ` ${i + 1}` : ""}`, color: b.colors.roof, part: onBed(roof), count: 1 }));
   }
   return items;
 }

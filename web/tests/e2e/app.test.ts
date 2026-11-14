@@ -33,7 +33,7 @@ describe("app", () => {
     await shot(page, "1-track");
 
     // add a curve to the right on the open end of a fresh plan
-    await page.getByRole("button", { name: "Leer", exact: true }).click();
+    await page.getByTestId("own-track").click();
     await page.getByRole("button", { name: "Anbauen: Gerade 216 mm", exact: true }).click();
     await page.getByRole("button", { name: /rechts ↷/ }).first().click();
     await page.getByRole("button", { name: /rechts ↷/ }).first().click();
@@ -47,10 +47,14 @@ describe("app", () => {
     await waitForScene(page);
     expect(await page.getByTestId("open-end").count()).toBe(0);
     await shot(page, "1-track-closed");
+    // a demo track brings no station and no signal of its own; a water tower from its category
     await page.getByRole("button", { name: "Abstellgleis" }).click();
-    await page.getByRole("button", { name: "Wasserturm" }).click();
     await waitForScene(page);
-    expect(await page.locator(".plan .building").count()).toBe(3);
+    expect(await page.locator(".plan .building").count()).toBe(0);
+    await page.getByTestId("bcat-railway").click();
+    await page.getByTestId("building-watertower").click();
+    await waitForScene(page);
+    expect(await page.locator(".plan .building").count()).toBe(1);
 
     const steps = ["track", "elements", "vehicles", "design", "overview", "export"];
     for (const step of steps.slice(1)) {
@@ -66,7 +70,7 @@ describe("app", () => {
     if (!session) return;
     const { page, errors } = await session.newPage();
     await waitForScene(page);
-    await page.getByRole("button", { name: "Leer", exact: true }).click();
+    await page.getByTestId("own-track").click();
     // an empty plan: the button in the middle opens the menu of pieces
     await page.getByTestId("start-piece").click();
     await page.getByTestId("piece-menu").getByRole("menuitem", { name: "Gerade 216 mm", exact: true }).click();
@@ -144,9 +148,44 @@ describe("app", () => {
     expect(errors).toEqual([]);
   });
 
+  it("demo tracks, tunnels, studs on both sides and a switch with a lever", async () => {
+    if (!session) return;
+    const { page, errors } = await session.newPage();
+    await waitForScene(page);
+    // the mountain line comes with its tunnels
+    await page.getByTestId("template-mountain").click();
+    await waitForScene(page);
+    expect(await page.locator(".plan .building").count()).toBe(3);
+    await shot(page, "1-mountain");
+    await page.getByTestId("template-heart").click();
+    await waitForScene(page);
+    expect(await page.locator(".plan .building").count()).toBe(0);
+    await page.getByTestId("bcat-stations").click();
+    await page.getByTestId("building-station_town").click();
+    await waitForScene(page);
+    await shot(page, "1-heart-town-station");
+    // the track configurator: studs LEGO left, DUPLO right; a switch with a lever
+    await page.getByTestId("step-elements").click();
+    await expect(page.getByRole("heading", { name: "Schienenkonfigurator" }).count()).resolves.toBe(1);
+    await page.getByRole("button", { name: /^Gerade 216 mm/ }).first().click();
+    await page.getByTestId("studs-left").getByRole("radio", { name: "LEGO", exact: true }).click();
+    await page.getByTestId("studs-right").getByRole("radio", { name: "DUPLO", exact: true }).click();
+    await waitForScene(page);
+    await expect(page.getByText("mit LEGO- und DUPLO-Noppen").first().count()).resolves.toBeGreaterThan(0);
+    await shot(page, "2-studs");
+    await page.getByRole("button", { name: /^Weiche links/ }).first().click();
+    await page.getByLabel(/Stellhebel/).check();
+    await waitForScene(page);
+    await expect(page.getByText(/Weiche links R182 mit Stellhebel/).first().count()).resolves.toBeGreaterThan(0);
+    await shot(page, "2-lever");
+    expect(errors).toEqual([]);
+  });
+
   it("exports buildings as a 3MF file", async () => {
     if (!session) return;
     const { page, errors } = await session.newPage();
+    await waitForScene(page);
+    await page.getByTestId("template-mountain").click();
     await waitForScene(page);
     await page.getByTestId("step-export").click();
     const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Gebäude als 3MF" }).click()]);

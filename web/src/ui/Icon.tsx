@@ -28,12 +28,22 @@ export function KindIcon({ kind }: { kind: ElementKind }) {
 export function BuildingIcon({ kind }: { kind: BuildingKind }) {
   const d: Record<BuildingKind, string[]> = {
     station: ["M3 26 H29", "M6 26 V14 L16 6 L26 14 V26", "M13 26 V19 H19 V26"],
+    station_town: ["M3 27 H29", "M4 27 V15 H28 V27", "M12 27 V7 H20 V27", "M12 7 L16 2 L20 7", "M16 12 m-2 0 a2 2 0 1 0 4 0 a2 2 0 1 0 -4 0"],
+    station_halt: ["M3 26 H29", "M7 26 V13 H25 V26", "M5 13 H27", "M11 22 H21"],
+    station_hall: ["M3 27 H29", "M5 27 V15 L16 4 L27 15 V27", "M10 27 V18 L16 12 L22 18 V27"],
     platform: ["M3 22 H29", "M5 22 L7 17 H25 L27 22"],
+    platform_roof: ["M3 26 H29", "M5 26 L7 21 H25 L27 26", "M16 21 V11", "M6 11 H26 L24 8 H8 Z"],
+    platform_island: ["M3 22 H29", "M5 22 L7 17 H25 L27 22", "M9 19 H23"],
+    tunnel: ["M2 27 L8 14 L12 16 L17 6 L22 13 L26 11 L30 27", "M11 27 V21 L16 16 L21 21 V27"],
+    tunnel_curve: ["M2 27 Q16 2 30 27", "M10 27 V21 Q16 13 22 21 V27"],
+    portal: ["M4 27 V7 H28 V27", "M4 7 V4 H8 V7 M12 7 V4 H16 V7 M20 7 V4 H24 V7", "M10 27 V18 L16 12 L22 18 V27"],
     house: ["M6 27 V15 L16 6 L26 15 V27 Z", "M14 27 V20 H18 V27"],
     signalbox: ["M8 27 V12 H24 V27", "M6 12 L16 5 L26 12", "M10 15 H22 V19 H10 Z"],
     watertower: ["M9 8 H23 V17 H9 Z", "M8 8 L16 3 L24 8", "M11 17 L9 28", "M21 17 L23 28"],
     shed: ["M4 27 V13 L16 5 L28 13 V27", "M10 27 V16 H22 V27"],
     signal: ["M16 28 V10", "M12 28 H20", "M13 4 H19 V12 H13 Z"],
+    plate_lego: ["M3 22 H29 V26 H3 Z", "M6 22 V19 H10 V22 M14 22 V19 H18 V22 M22 22 V19 H26 V22"],
+    plate_duplo: ["M3 21 H29 V26 H3 Z", "M6 21 V15 H14 V21 M18 21 V15 H26 V21"],
   };
   return (
     <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

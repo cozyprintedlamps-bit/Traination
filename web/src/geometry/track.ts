@@ -4,8 +4,10 @@
 // Sweeps: a cross-section in (u = across, left positive; v = up) is extruded along +X for lines
 // and revolved around the curve centre for arcs.
 import type { CrossSection, Manifold, ManifoldToplevel } from "manifold-3d";
-import { elementShape, ledges, pathLength, pointAt, sleeperGaps, smoothstep, standsOnGround } from "../core/track";
-import { STUD_FIT, studSystem } from "../presets/bricks";
+import { elementShape, hasLever, ledgeSides, pathLength, pointAt, sleeperGaps, smoothstep, standsOnGround } from "../core/track";
+import { leverLayout } from "../core/lever";
+import type { LeverLayout } from "../core/lever";
+import { STUD_FIT, ledgeWidth, studSystem } from "../presets/bricks";
 import type { ElementType, Path, Port, Variant } from "../core/track";
 import {
   ARCH_CROWN,
@@ -29,6 +31,7 @@ import {
   SLEEPER_GAP_ROUND,
   SLEEPER_GAP_WIDTH,
   SLEEPER_PITCH,
+  LEVER_KNOB_LENGTH,
   TRACK_EDGE_CHAMFER,
   TRACK_HEIGHT,
   TRACK_WIDTH,
@@ -97,7 +100,7 @@ export function grooveProfile(wasm: ManifoldToplevel, bottom: boolean): CrossSec
 }
 
 /** Column-major 4×4: profile x (across) → world Y, profile y (up) → world Z, extrusion → world X. */
-const PROFILE_TO_TRACK: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] = [
+export const PROFILE_TO_TRACK: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] = [
   0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1,
 ];
 
@@ -258,6 +261,19 @@ function rampBody(wasm: ManifoldToplevel, path: Extract<Path, { kind: "line" }>,
     if (arch) rib = rib.subtract(wasm.CrossSection.ofPolygons([arch]).extrude(RAMP_WALL + 2 * OVERCUT).transform(PROFILE_TO_TRACK).translate([x - OVERCUT, 0, 0]));
     bodies.push(rib);
   });
+  // under the track the hollow ends in a ridge at 45°: no flat ceiling that would need support
+  const inner = half - RAMP_WALL;
+  const vault = wasm.CrossSection.ofPolygons([
+    [
+      [-inner - 0.5, -ARCH_CROWN - inner],
+      [0, -ARCH_CROWN],
+      [inner + 0.5, -ARCH_CROWN - inner],
+      [inner + 0.5, 0.5],
+      [-inner - 0.5, 0.5],
+    ],
+  ]);
+  const above = Manifold.cube([path.length, TRACK_WIDTH, Math.max(path.z0, path.z1) + TRACK_HEIGHT], false).translate([0, -half, 0]);
+  bodies.push(sweep(wasm, vault, path).intersect(above));
   return bodies;
 }
 
@@ -293,7 +309,8 @@ export function buildElement(wasm: ManifoldToplevel, type: ElementType, variant:
   const { Manifold } = wasm;
   const shape = elementShape(type, variant);
   const profile = trackProfile(wasm);
-  const bottomGrooves = options.doubleSided && !standsOnGround(type.kind) && type.kind !== "buffer";
+  // a switch with a lever works from the top only: it is not turned over
+  const bottomGrooves = options.doubleSided && !standsOnGround(type.kind) && type.kind !== "buffer" && !hasLever(type);
   const grooves = grooveProfile(wasm, bottomGrooves);
   const half = TRACK_WIDTH / 2;
 
@@ -312,7 +329,18 @@ export function buildElement(wasm: ManifoldToplevel, type: ElementType, variant:
   }
   if (type.kind === "buffer" && first?.kind === "line") {
     const block = Manifold.cube([BUFFER_BLOCK_LENGTH, TRACK_WIDTH, BUFFER_BLOCK_HEIGHT], false).translate([first.length - BUFFER_BLOCK_LENGTH, -half, 0]);
-    const beam = Manifold.cube([4, TRACK_WIDTH + 8, 8], false).translate([first.length - BUFFER_BLOCK_LENGTH - 4, -half - 4, BUFFER_BLOCK_HEIGHT - 14]);
+    // the beam in front of the block: its underside rises at 45° from the block (no overhang)
+    const face = first.length - BUFFER_BLOCK_LENGTH;
+    const top = BUFFER_BLOCK_HEIGHT - 6;
+    const beamSide = wasm.CrossSection.ofPolygons([
+      [
+        [face - 4, top - 8],
+        [face, top - 12],
+        [face, top],
+        [face - 4, top],
+      ],
+    ]);
+    const beam = across(beamSide, -half, half);
     bodies.push(block, beam);
   }
 
@@ -323,6 +351,8 @@ export function buildElement(wasm: ManifoldToplevel, type: ElementType, variant:
   const sleepers = options.sleepers ? sleeperCutters(wasm, type, variant) : undefined;
   if (sleepers) solid = solid.subtract(sleepers);
   if (studParts) solid = solid.add(studParts);
+  const lever = leverLayout(type, variant);
+  if (lever) solid = solid.subtract(leverSlot(wasm, lever));
   const sockets = shape.ports.filter((p) => p.gender === "female").map((p) => socket(wasm, p, options.connectorFit));
   if (sockets.length > 0) solid = solid.subtract(Manifold.union(sockets));
   // a bridge is printed upside down: its pegs reach the full height, so that they lie on the bed
@@ -335,24 +365,55 @@ export function buildElement(wasm: ManifoldToplevel, type: ElementType, variant:
 /** Bridges are printed upside down, everything else as it lies. */
 export const printFlipped = (type: ElementType) => type.kind === "bridge";
 
-/** Ledges with building-brick studs on the left and/or right of the paths of an element. */
+/** The cut through a switch for the post and the arm of its slider (full height). */
+function leverSlot(wasm: ManifoldToplevel, l: LeverLayout): Manifold {
+  return wasm.Manifold.cube([l.slot.x[1] - l.slot.x[0], l.slot.y[1] - l.slot.y[0], TRACK_HEIGHT + 2 * OVERCUT], false).translate([l.slot.x[0], l.slot.y[0], -OVERCUT]);
+}
+
+/**
+ * The slider of a switch with a lever, as it lies in the track with route A open: blade, post,
+ * arm (low where it passes under an open groove) and knob. `shifted` moves it to route B.
+ */
+export function buildSlider(wasm: ManifoldToplevel, l: LeverLayout, shifted = false): Manifold {
+  const { Manifold } = wasm;
+  const slab = (x: [number, number], y: [number, number], z0: number, z1: number) => Manifold.cube([x[1] - x[0], y[1] - y[0], z1 - z0], false).translate([x[0], y[0], z0]);
+  const blade = wasm.CrossSection.ofPolygons([l.blade]).extrude(l.top - l.bladeBottom).translate([0, 0, l.bladeBottom]);
+  const post = slab(l.arm, l.post, 0, l.top);
+  let arm = slab(l.arm, l.reach, 0, l.top);
+  for (const low of l.low) arm = arm.subtract(slab([l.arm[0] - 1, l.arm[1] + 1], low, l.lowTop, l.top + 1));
+  const middle = (l.arm[0] + l.arm[1]) / 2;
+  const knob = slab([middle - LEVER_KNOB_LENGTH / 2, middle + LEVER_KNOB_LENGTH / 2], l.knob, 0, l.top);
+  const slider = Manifold.union([blade, post, arm, knob]);
+  return shifted ? slider.translate([0, l.shift, 0]) : slider;
+}
+
+/** The slider as it is printed: upside down, its flat top on the bed. */
+export function printSlider(wasm: ManifoldToplevel, l: LeverLayout): Manifold {
+  return buildSlider(wasm, l).rotate([180, 0, 0]).translate([0, 0, l.top]);
+}
+
+/**
+ * Ledges with building-brick studs on the left and/or right of the paths of an element, each side
+ * with its own system and number of rows. On a curve every row of studs runs on its own arc, with
+ * the pitch of the system along that arc, so that long bricks fit on each row.
+ */
 function studLedges(wasm: ManifoldToplevel, type: ElementType, variant: Variant): Manifold | undefined {
-  const system = studSystem(type.studs);
-  const side = ledges(type, variant);
-  if (!system || side.left + side.right === 0) return undefined;
+  const sides = ledgeSides(type, variant);
   const half = TRACK_WIDTH / 2;
   const parts: Manifold[] = [];
-  const studR = (system.diameter + STUD_FIT) / 2;
   for (const path of elementShape(type, variant).paths) {
     const length = pathLength(path);
-    for (const [sign, width] of [
-      [1, side.left],
-      [-1, side.right],
+    for (const [sign, ledge] of [
+      [1, sides.left],
+      [-1, sides.right],
     ] as const) {
-      if (width <= 0) continue;
+      const system = studSystem(ledge.kind);
+      const width = ledgeWidth(ledge.kind, ledge.rows);
+      if (!system || width <= 0) continue;
+      const studR = (system.diameter + STUD_FIT) / 2;
       const u0 = sign > 0 ? half - 0.5 : -half - width;
       const u1 = sign > 0 ? half + width : -half + 0.5;
-      const ledge = wasm.CrossSection.ofPolygons([
+      const section = wasm.CrossSection.ofPolygons([
         [
           [u0, 0],
           [u1, 0],
@@ -360,25 +421,26 @@ function studLedges(wasm: ManifoldToplevel, type: ElementType, variant: Variant)
           [u0, TRACK_HEIGHT],
         ],
       ]);
-      parts.push(sweep(wasm, ledge, path));
-      // studs on the grid, centred along the path
-      const n = Math.floor(length / system.pitch);
-      const start = (length - n * system.pitch) / 2 + system.pitch / 2;
-      const rows = Math.round(width / system.pitch);
-      for (let i = 0; i < n; i++) {
-        const p = pointAt(path, start + i * system.pitch);
-        const nx = -Math.sin((p.heading * Math.PI) / 180);
-        const ny = Math.cos((p.heading * Math.PI) / 180);
-        for (let r = 0; r < rows; r++) {
-          const u = sign * (half + system.pitch * (r + 0.5));
-          let stud = wasm.Manifold.cylinder(system.height + 0.01, studR, studR, 32).translate([0, 0, TRACK_HEIGHT - 0.01]);
-          if (system.hollow > 0) stud = stud.subtract(wasm.Manifold.cylinder(system.height + 1, system.hollow / 2, system.hollow / 2, 24).translate([0, 0, TRACK_HEIGHT + 0.3]));
+      parts.push(sweep(wasm, section, path));
+      let stud = wasm.Manifold.cylinder(system.height + 0.01, studR, studR, 32).translate([0, 0, TRACK_HEIGHT - 0.01]);
+      if (system.hollow > 0) stud = stud.subtract(wasm.Manifold.cylinder(system.height + 1, system.hollow / 2, system.hollow / 2, 24).translate([0, 0, TRACK_HEIGHT + 0.3]));
+      for (let r = 0; r < ledge.rows; r++) {
+        const u = sign * (half + system.pitch * (r + 0.5));
+        // the row runs on its own arc: shorter on the inside of a curve, longer on the outside
+        const scale = path.kind === "arc" ? (path.radius - Math.sign(path.sweep) * u) / path.radius : 1;
+        const rowLength = length * scale;
+        const n = Math.floor(rowLength / system.pitch);
+        const start = (rowLength - n * system.pitch) / 2 + system.pitch / 2;
+        for (let i = 0; i < n; i++) {
+          const p = pointAt(path, (start + i * system.pitch) / scale);
+          const nx = -Math.sin((p.heading * Math.PI) / 180);
+          const ny = Math.cos((p.heading * Math.PI) / 180);
           parts.push(stud.translate([p.x + nx * u, p.y + ny * u, p.z]));
         }
       }
     }
   }
-  return wasm.Manifold.union(parts);
+  return parts.length > 0 ? wasm.Manifold.union(parts) : undefined;
 }
 
 /** A pillar under raised track: a foot, the column and side lips that hold the track (none if `plain`). */

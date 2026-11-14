@@ -33,6 +33,20 @@ export const PRINT_BOTTOM_SKIN = 0.6;
 export const PRINT_INFILL = 0.15;
 export const FILAMENT_DENSITY = 1.24;
 
+/**
+ * Printing without support (geometry/printability.ts): a layer may reach OVERHANG_WINDOW beyond the
+ * layer OVERHANG_WINDOW lower (45°), plus a little slack. Parts of a layer thinner than
+ * OVERHANG_MIN_WIDTH do not count (round edges, raised details of about a millimetre).
+ */
+export const OVERHANG_STEP = 0.4;
+export const OVERHANG_WINDOW = 2;
+export const OVERHANG_TOLERANCE = 0.3;
+export const OVERHANG_MIN_WIDTH = 0.8;
+/** a gap up to this wide, held on both sides, is bridged (a ledge up to half of it holds as well) */
+export const OVERHANG_BRIDGE = 8;
+/** a part with more overhang than this (mm²) is reported: it may need support */
+export const OVERHANG_LIMIT = 20;
+
 /** Printers we know, with their usable bed. */
 export interface PrinterProfile {
   id: string;

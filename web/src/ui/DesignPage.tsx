@@ -2,6 +2,7 @@
 // the colour of each main part; whether the parts are printed separately; colours of the track
 // pieces and buildings.
 import { useAppState, useStore } from "../app/context";
+import { NO_ROOF } from "../core/buildings";
 import { COLOR_SLOTS, DECORS, HAS_CHIMNEY, HAS_DOME, HAS_LOAD, HAS_ROOF, HAS_WINDOWS, LETTERING_MAX, LOCOMOTIVES, cleanLettering } from "../core/vehicle";
 import type { Decor, Vehicle, VehicleColors, VehicleDesign } from "../core/vehicle";
 import { Choice, ColorPicker, Field, NumberField, Section, Toggle } from "./components";
@@ -94,7 +95,7 @@ export function DesignPage() {
             <div key={b.id} className="color-group">
               <p className="strong small">{buildingName(b, i)}</p>
               <ColorPicker label={tr("color.walls")} value={b.colors.walls} onChange={(c) => store.changeBuilding(b.id, { colors: { ...b.colors, walls: c } })} />
-              {b.kind !== "platform" && b.kind !== "signal" && <ColorPicker label={tr("color.building_roof")} value={b.colors.roof} onChange={(c) => store.changeBuilding(b.id, { colors: { ...b.colors, roof: c } })} />}
+              {!NO_ROOF.has(b.kind) && <ColorPicker label={tr("color.building_roof")} value={b.colors.roof} onChange={(c) => store.changeBuilding(b.id, { colors: { ...b.colors, roof: c } })} />}
               <ColorPicker label={tr("color.building_details")} value={b.colors.details} onChange={(c) => store.changeBuilding(b.id, { colors: { ...b.colors, details: c } })} />
             </div>
           ))}

@@ -97,7 +97,23 @@ export function cyberbrickBody(wasm: ManifoldToplevel, v: Vehicle, H: number): B
     return full;
   };
   const outer = shape(0);
-  let shell = outer.subtract(shape(WALL));
+  // inside, the ceiling rises at 45° from the walls to a ridge: the body prints upright without
+  // support (the electronics stay below the slopes: they are at most 19 mm high)
+  const hi = HALF - WALL;
+  const apex = H - WALL - 0.5;
+  const pointedInside = wasm.CrossSection.ofPolygons([
+    [
+      [-hi - 1, -2],
+      [hi + 1, -2],
+      [hi + 1, apex - hi - 1],
+      [0, apex],
+      [-hi - 1, apex - hi - 1],
+    ],
+  ])
+    .extrude(L + 2)
+    .rotate([90, 0, 90])
+    .translate([x0 - 1, 0, 0]);
+  let shell = outer.subtract(shape(WALL).intersect(pointedInside));
   // bosses that take the chassis pins
   for (const x of [v.length / 2 - 7, -v.length / 2 + 7]) shell = shell.add(Manifold.cylinder(7, 4.5, 4.5, 32).translate([x, 0, 0]).intersect(outer));
   // the switch slide through the left wall near the rear, the USB port of the core through the right wall

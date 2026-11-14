@@ -233,7 +233,7 @@ select.input { padding-right: 6px; }
 .step-button.selected { color: var(--ink); }
 .step-no { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid var(--line); font-weight: 600; }
 .step-button.selected .step-no { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 45%, transparent); }
-.step-name { font-size: 11.5px; line-height: 1.15; text-align: center; }
+.step-name { font-size: 11.5px; line-height: 1.15; text-align: center; hyphens: manual; overflow-wrap: anywhere; max-width: 100%; }
 
 .panel-page { position: absolute; z-index: 3; left: 122px; top: 76px; bottom: 74px; width: 404px; padding: 20px; overflow-y: auto; }
 .nav-buttons { position: absolute; z-index: 3; left: 122px; bottom: 14px; width: 404px; display: flex; justify-content: space-between; }
@@ -301,3 +301,10 @@ select.input { padding-right: 6px; }
   .field-row { grid-template-columns: 1fr; }
   .field-hint { grid-column: 1; }
 }
+
+/* Track step: "build your own track", pieces and buildings in groups; studs per side */
+.own-track { width: 100%; height: 42px; margin-top: 6px; font-size: 14px; }
+.palette-group + .palette-group { margin-top: 6px; }
+.palette-group .subhead, .card-list + div .subhead { color: var(--muted, inherit); }
+.stud-side { padding: 6px 8px; border-radius: var(--radius-c); background: var(--surface-2); display: flex; flex-direction: column; gap: 4px; }
+.stud-side + .stud-side { margin-top: 6px; }

@@ -157,11 +157,11 @@ describe("vehicles", () => {
 describe("stud ledges, supports and buildings", () => {
   it("a LEGO ledge carries studs on the 8 mm grid", () => {
     const plain = engine.element(makeElement("straight", { length: 216 }), PLAIN, options);
-    const lego = engine.element(makeElement("straight", { length: 216, studs: "lego", studSide: "left" }), PLAIN, options);
+    const lego = engine.element(makeElement("straight", { length: 216, studs: { left: { kind: "lego", rows: 1 }, right: { kind: "none", rows: 1 } } }), PLAIN, options);
     expect(lego.status).toBe("NoError");
     expect(lego.max[1] - plain.max[1]).toBeCloseTo(LEGO.pitch, 3);
     expect(lego.max[2]).toBeCloseTo(TRACK_HEIGHT + LEGO.height, 2);
-    const duplo = engine.element(makeElement("curve", { studs: "duplo", studSide: "both" }), PLAIN, options);
+    const duplo = engine.element(makeElement("curve", { studs: { left: { kind: "duplo", rows: 1 }, right: { kind: "duplo", rows: 1 } } }), PLAIN, options);
     expect(duplo.status).toBe("NoError");
   });
 
@@ -177,7 +177,7 @@ describe("stud ledges, supports and buildings", () => {
     const b = makeBuilding(kind);
     b.name = "TRAINATION";
     const m = engine.building(b);
-    for (const part of [m.base, ...(m.roof ? [m.roof] : []), ...(m.details ? [m.details] : [])]) {
+    for (const part of [m.base, ...m.roofs, ...(m.details ? [m.details] : [])]) {
       expect(part.status).toBe("NoError");
       expect(part.volume).toBeGreaterThan(0);
     }
