@@ -12,7 +12,10 @@ import {
   Mesh,
   MeshStandardMaterial,
   PerspectiveCamera,
+  Plane,
+  Raycaster,
   Scene,
+  Vector2,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -51,6 +54,10 @@ export class SceneView {
   private frame = 0;
   private disposed = false;
   private autoFit = false;
+  /** pixels on the right covered by a panel: the view centres on the rest */
+  private insetRight = 0;
+  /** called after every frame (the page moves its overlays with the camera) */
+  onRender: (() => void) | undefined;
 
   /** Throws if WebGL is not available. */
   constructor(canvas: HTMLCanvasElement) {
@@ -88,9 +95,26 @@ export class SceneView {
     this.height = Math.max(height, 1);
     this.renderer.setSize(this.width, this.height, false);
     this.camera.aspect = this.width / this.height;
-    this.camera.updateProjectionMatrix();
+    this.applyOffset();
     if (this.autoFit) this.fit();
     this.requestRender();
+  }
+
+  /** A panel covers `px` pixels on the right: the parts are fitted into the rest of the view. */
+  setInsetRight(px: number): void {
+    if (px === this.insetRight) return;
+    this.insetRight = px;
+    this.applyOffset();
+    if (this.autoFit) this.fit();
+    this.requestRender();
+  }
+
+  private applyOffset(): void {
+    const inset = Math.min(this.insetRight, this.width * 0.5);
+    // shift the picture to the left by half the covered strip, so that its middle is the free middle
+    if (inset > 0) this.camera.setViewOffset(this.width, this.height, inset / 2, 0, this.width, this.height);
+    else this.camera.clearViewOffset();
+    this.camera.updateProjectionMatrix();
   }
 
   setParts(parts: ScenePart[]): void {
@@ -139,7 +163,8 @@ export class SceneView {
     const radius = Math.max(hi.clone().sub(lo).length() / 2, 20);
     // the sphere around the parts fits the narrower of the two angles of view
     const vertical = (FIELD_OF_VIEW * Math.PI) / 180;
-    const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * this.camera.aspect);
+    const free = Math.max(this.width - Math.min(this.insetRight, this.width * 0.5), 1) / this.height;
+    const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * free);
     const distance = (radius / Math.sin(Math.min(vertical, horizontal) / 2)) * 0.92;
     const dir = new Vector3(0.55, -0.85, 0.75).normalize();
     this.controls.target.copy(center);
@@ -172,8 +197,25 @@ export class SceneView {
     if (this.frame !== 0 || this.disposed) return;
     this.frame = requestAnimationFrame(() => {
       this.frame = 0;
-      if (!this.disposed) this.renderer.render(this.scene, this.camera);
+      if (this.disposed) return;
+      this.renderer.render(this.scene, this.camera);
+      this.onRender?.();
     });
+  }
+
+  /** Where a point (mm) appears in the canvas (pixels from the top left); visible = in front of the camera. */
+  toScreen(x: number, y: number, z: number): { x: number; y: number; visible: boolean } {
+    const v = new Vector3(x, y, z).project(this.camera);
+    return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height, visible: this.meshes.length > 0 && v.z > -1 && v.z < 1 };
+  }
+
+  /** The point on the bed (z = 0) under a canvas pixel, if the view looks at the bed there. */
+  toGround(px: number, py: number): [number, number] | undefined {
+    if (this.meshes.length === 0) return undefined;
+    const ray = new Raycaster();
+    ray.setFromCamera(new Vector2((px / this.width) * 2 - 1, 1 - (py / this.height) * 2), this.camera);
+    const hit = ray.ray.intersectPlane(new Plane(new Vector3(0, 0, 1), 0), new Vector3());
+    return hit ? [hit.x, hit.y] : undefined;
   }
 
   dispose(): void {

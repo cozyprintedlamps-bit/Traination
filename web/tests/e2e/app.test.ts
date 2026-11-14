@@ -33,7 +33,7 @@ describe("app", () => {
     await shot(page, "1-track");
 
     // add a curve to the right on the open end of a fresh plan
-    await page.getByRole("button", { name: "Leer" }).click();
+    await page.getByRole("button", { name: "Leer", exact: true }).click();
     await page.getByRole("button", { name: "Anbauen: Gerade 216 mm", exact: true }).click();
     await page.getByRole("button", { name: /rechts ↷/ }).first().click();
     await page.getByRole("button", { name: /rechts ↷/ }).first().click();
@@ -59,6 +59,60 @@ describe("app", () => {
       if (step === "overview") await page.getByTestId("overview-parts").waitFor({ timeout: 60_000 });
       await shot(page, `${steps.indexOf(step) + 1}-${step}`);
     }
+    expect(errors).toEqual([]);
+  });
+
+  it("builds track in the 3D view: first piece, the + menu, dragging, closing and clearing", async () => {
+    if (!session) return;
+    const { page, errors } = await session.newPage();
+    await waitForScene(page);
+    await page.getByRole("button", { name: "Leer", exact: true }).click();
+    // an empty plan: the button in the middle opens the menu of pieces
+    await page.getByTestId("start-piece").click();
+    await page.getByTestId("piece-menu").getByRole("menuitem", { name: "Gerade 216 mm", exact: true }).click();
+    await waitForScene(page);
+    expect(await page.locator(".plan .piece").count()).toBe(1);
+    expect(await page.getByTestId("end-plus").count()).toBe(2);
+    // the "+" at an end: a curve to the left
+    await page.getByTestId("end-plus").last().click();
+    await page.getByTestId("piece-menu").getByRole("menuitem", { name: /links/ }).first().click();
+    await waitForScene(page);
+    expect(await page.locator(".plan .piece").count()).toBe(2);
+    // drag a straight from the list onto the "+" of a free end in the 3D view
+    const plus = await page.getByTestId("end-plus").last().boundingBox();
+    const viewer = await page.getByTestId("viewer").boundingBox();
+    if (!plus || !viewer) throw new Error("no marker");
+    await page.getByTestId("element-straight-144").dragTo(page.getByTestId("viewer"), { targetPosition: { x: plus.x - viewer.x + plus.width / 2, y: plus.y - viewer.y + plus.height / 2 } });
+    await waitForScene(page);
+    expect(await page.locator(".plan .piece").count()).toBe(3);
+    expect(await page.getByTestId("end-plus").count()).toBe(2);
+    await shot(page, "1-track-plus");
+    await page.getByTestId("end-plus").last().click();
+    await page.getByTestId("piece-menu").waitFor();
+    await shot(page, "1-track-menu");
+    await page.keyboard.press("Escape");
+    // close: calculated fitting pieces where standard ones do not fit
+    await page.getByTestId("close-track").click();
+    await waitForScene(page);
+    expect(await page.getByTestId("open-end").count()).toBe(0);
+    await page.getByText(/Strecke geschlossen/).waitFor();
+    await shot(page, "1-track-closed-fit");
+    // clear everything, then undo
+    const pieces = await page.locator(".plan .piece").count();
+    await page.getByTestId("clear-track").click();
+    await page.getByTestId("clear-track-yes").click();
+    await waitForScene(page);
+    expect(await page.locator(".plan .piece").count()).toBe(0);
+    await page.keyboard.press("Control+z");
+    await waitForScene(page);
+    expect(await page.locator(".plan .piece").count()).toBe(pieces);
+    // more templates, and a ready-made train
+    await page.getByRole("button", { name: "Acht mit Brücke" }).click();
+    await waitForScene(page);
+    await shot(page, "1-template-eight-bridge");
+    await page.getByTestId("step-vehicles").click();
+    await page.getByTestId("train-cyberbrick").click();
+    await expect(page.getByTestId("train-car").first().textContent()).resolves.toContain("CyberBrick");
     expect(errors).toEqual([]);
   });
 

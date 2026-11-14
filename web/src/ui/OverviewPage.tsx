@@ -10,6 +10,7 @@ import { elementShape, pathLength } from "../core/track";
 import { vehicleIssues } from "../core/vehicle";
 import { buildingItems, trackItems, vehicleItems } from "../export/printItems";
 import type { PrintItem } from "../export/plates";
+import { FILAMENT_DENSITY } from "../presets/print";
 import { COUPLER_REACH } from "../presets/vehicle";
 import { Notice, Section } from "./components";
 import { exportNames } from "./ExportPage";
@@ -17,9 +18,6 @@ import { formatNumber, language, tr, vehicleName } from "./i18n";
 import { useAnalysis } from "./useScene";
 import { issueText } from "./VehiclesPage";
 
-/** PLA density (g/cm³) and the share of a solid that is printed (walls plus 40 % infill). */
-const DENSITY = 1.24;
-const PRINTED_SHARE = 0.55;
 
 interface Usage {
   parts: number;
@@ -31,14 +29,15 @@ async function usage(project: Project, engine: ReturnType<typeof useEngine>): Pr
   const items: PrintItem[] = [...(await trackItems(project, engine, names)), ...(await vehicleItems(project, engine, names)), ...(await buildingItems(project, engine, names))];
   const grams = new Map<string, number>();
   let parts = 0;
-  const add = (color: string, volume: number, count: number) => {
+  // printed material (walls, skins and sparse infill), see core/material
+  const add = (color: string, material: number, count: number) => {
     const key = color.toUpperCase();
-    grams.set(key, (grams.get(key) ?? 0) + (volume / 1000) * DENSITY * PRINTED_SHARE * count);
+    grams.set(key, (grams.get(key) ?? 0) + (material / 1000) * FILAMENT_DENSITY * count);
   };
   for (const item of items) {
     parts += item.count;
-    add(item.color, item.part.volume, item.count);
-    for (const v of item.volumes ?? []) add(v.color, v.part.volume, item.count);
+    add(item.color, item.part.material, item.count);
+    for (const v of item.volumes ?? []) add(v.color, v.part.material, item.count);
   }
   return { parts, grams };
 }

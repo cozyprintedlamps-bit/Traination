@@ -237,6 +237,8 @@ function overlaps(layout: Layout, types: readonly ElementType[], poses: Map<stri
 export interface AttachWish {
   /** curves and switches: to which side the track should turn from the open port */
   turn?: "left" | "right";
+  /** plug in with this own port (e.g. a switch with its branch end) */
+  port?: number;
 }
 
 /**
@@ -248,6 +250,7 @@ export function attach(target: WorldPort, type: ElementType, wish: AttachWish = 
   for (const variant of variantsOf(type.kind)) {
     const ports = elementShape(type, variant).ports;
     ports.forEach((own, index) => {
+      if (wish.port !== undefined && wish.port !== index) return;
       const pose = poseAgainst(own, target);
       let score = 0;
       if (own.gender === target.gender) score += 100;

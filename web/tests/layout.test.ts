@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyze, attach, nextPort, partsList, removePiece } from "../src/core/layout";
-import { newProject, templateLayout, TEMPLATES } from "../src/core/project";
+import { buildTemplate, newProject, templateLayout, TEMPLATES } from "../src/core/project";
 import { elementShape, makeElement, standardElements } from "../src/core/track";
 import { CURVE_ANGLE, CURVE_LARGE_RADIUS } from "../src/presets/gauge";
 
@@ -53,13 +53,15 @@ describe("element shapes", () => {
 
 describe("track plan", () => {
   it.each(TEMPLATES.filter((t) => t !== "empty"))("template %s closes without open ends", (id) => {
-    const layout = templateLayout(id, elements);
-    const a = analyze(layout, elements);
-    // the siding ends in a buffer stop, which has no free end
+    const { layout, elements: types } = buildTemplate(id, elements);
+    const a = analyze(layout, types);
+    // sidings end in buffer stops, which have no free end
     expect(a.open).toHaveLength(0);
-    if (id === "siding") expect(layout.pieces.some((p) => p.type === "buffer")).toBe(true);
+    expect(a.missing).toEqual([]);
+    if (id === "siding" || id === "yard") expect(layout.pieces.some((p) => p.type === "buffer")).toBe(true);
     expect(a.joints.every((j) => j.fits)).toBe(true);
-    expect(a.joints.filter((j) => j.closed)).toHaveLength(1);
+    // the figure eight closes two loops; the passing loop closes its main line and the oval
+    expect(a.joints.filter((j) => j.closed)).toHaveLength(id === "eight" || id === "passing" ? 2 : 1);
     expect(a.floating).toEqual([]);
     expect(a.overlapping).toEqual([]);
   });

@@ -32,7 +32,7 @@ export interface Names {
   part(part: PartName): string;
 }
 
-export const trackOptions = (project: Project): TrackOptions => ({ doubleSided: project.settings.doubleSided, connectorFit: project.settings.connectorFit });
+export const trackOptions = (project: Project): TrackOptions => ({ doubleSided: project.settings.doubleSided, connectorFit: project.settings.connectorFit, sleepers: project.settings.sleepers !== false });
 
 export async function trackItems(project: Project, source: MeshSource, names: Names): Promise<PrintItem[]> {
   const typeOf = new Map(project.elements.map((e) => [e.id, e]));

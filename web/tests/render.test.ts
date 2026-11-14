@@ -6,7 +6,7 @@ import { zlibSync } from "fflate";
 import { it } from "vitest";
 import { analyze, rotate } from "../src/core/layout";
 import type { PartMesh } from "../src/core/mesh";
-import { newProject } from "../src/core/project";
+import { TEMPLATES, newProject } from "../src/core/project";
 import type { TemplateId } from "../src/core/project";
 import { route, trainPoses } from "../src/core/route";
 import { PLAIN, standardElements } from "../src/core/track";
@@ -16,6 +16,7 @@ import { BUILDING_KINDS, makeBuilding } from "../src/core/buildings";
 import type { Building } from "../src/core/buildings";
 import { supports } from "../src/core/supports";
 import { createEngine } from "../src/geometry/engine";
+import { trackOptions } from "../src/export/printItems";
 import type { Engine } from "../src/geometry/engine";
 import { TRACK_HEIGHT } from "../src/presets/gauge";
 import { TRACK_CLEARANCE } from "../src/presets/print";
@@ -172,7 +173,7 @@ function layoutItems(engine: Engine, template: TemplateId): Item[] {
   const project = newProject(template);
   const analysis = analyze(project.layout, project.elements);
   const typeOf = new Map(project.elements.map((e) => [e.id, e]));
-  const options = { doubleSided: project.settings.doubleSided, connectorFit: project.settings.connectorFit };
+  const options = trackOptions(project);
   const items: Item[] = [];
   for (const piece of project.layout.pieces) {
     const type = typeOf.get(piece.type);
@@ -201,7 +202,7 @@ it.skipIf(!process.env.TRAINATION_RENDER)(
   async () => {
     mkdirSync(OUT, { recursive: true });
     const engine = await createEngine();
-    const opts = { doubleSided: true, connectorFit: 0.4 };
+    const opts = { doubleSided: true, connectorFit: 0.4, sleepers: true };
     const wood = hex("#E4BD68");
     const elements = standardElements();
     render("elements", elements.map((e, i) => ({ part: engine.element(e, PLAIN, opts), x: (i % 5) * 300, y: -Math.floor(i / 5) * 300, z: 0, color: wood })), -0.5, 0.75);
@@ -221,7 +222,14 @@ it.skipIf(!process.env.TRAINATION_RENDER)(
       ...(cm.inside ? [{ part: cm.inside, x: 0, y: 0, z: 0, color: [40, 120, 200] as RGB }] : []),
     ], -0.6, 0.5, 1000, 700);
     render("buildings", BUILDING_KINDS.flatMap((k, i) => buildingItems(engine, { ...makeBuilding(k), name: "BAHNHOF", x: (i % 4) * 260, y: -Math.floor(i / 4) * 160 })), -0.5, 0.6);
-    for (const template of ["oval", "siding", "hill"] as const) render(`layout-${template}`, layoutItems(engine, template), -0.4, 0.8);
+    // close-ups of sleepers, viaduct ramps, bridge pillars and supports
+    const byId = new Map(elements.map((e) => [e.id, e]));
+    const detail = ["straight-144", "curve-large", "buffer", "ramp-1", "ramp-2", "bridge"].map((id, i) => ({ part: engine.element(byId.get(id)!, PLAIN, opts), x: (i % 3) * 280, y: -Math.floor(i / 3) * 140, z: 0, color: wood }));
+    detail.push({ part: engine.support(38, false), x: 0, y: -300, z: 0, color: hex("#8E9089") }, { part: engine.support(76, false), x: 120, y: -300, z: 0, color: hex("#8E9089") });
+    render("track-detail", detail, -0.45, 0.55);
+    render("sleepers-top", ["straight-144", "curve-small"].map((id, i) => ({ part: engine.element(byId.get(id)!, PLAIN, opts), x: i * 200, y: 0, z: 0, color: wood })), -0.02, 1.45, 1200, 600);
+    render("ramp-side", [{ part: engine.element(byId.get("ramp-2")!, PLAIN, opts), x: 0, y: 0, z: 0, color: wood }], -0.05, 0.12, 1200, 600);
+    for (const template of TEMPLATES) if (template !== "empty") render(`layout-${template}`, layoutItems(engine, template), -0.4, 0.8);
   },
   600_000,
 );

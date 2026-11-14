@@ -23,6 +23,16 @@ export const WHEEL_TOP_GAP = 1;
 /** Parts on one print bed keep this distance (and from the bed edge). */
 export const BED_SPACING = 6;
 
+/**
+ * Filament estimate as a slicer prints with its standard profile (0.2 mm layers): two walls of
+ * 0.42 mm, five top and three bottom layers, 15 % sparse infill inside. PLA: 1.24 g/cm³.
+ */
+export const PRINT_WALL = 0.84;
+export const PRINT_TOP_SKIN = 1.0;
+export const PRINT_BOTTOM_SKIN = 0.6;
+export const PRINT_INFILL = 0.15;
+export const FILAMENT_DENSITY = 1.24;
+
 /** Printers we know, with their usable bed. */
 export interface PrinterProfile {
   id: string;

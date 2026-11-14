@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { DragEvent } from "react";
 import { useAppState, useStore } from "../app/context";
-import { clearance } from "../core/project";
+import { TRAIN_TEMPLATE_IDS, clearance } from "../core/project";
 import { CATEGORIES, COUPLERS, KINDS_BY_CATEGORY, categoryOf, defaultColors, vehicleIssues } from "../core/vehicle";
 import type { Coupler, Vehicle, VehicleCategory, VehicleIssue, VehicleKind } from "../core/vehicle";
 import { MAGNET_CATALOG, VEHICLE_MAX_LENGTH, VEHICLE_MIN_LENGTH } from "../presets/vehicle";
@@ -178,6 +178,16 @@ export function VehiclesPage() {
 
   return (
     <>
+      <Section title={tr("vehicles.templates")}>
+        <div className="choices">
+          {TRAIN_TEMPLATE_IDS.map((id) => (
+            <button key={id} type="button" className="chip" data-testid={`train-${id}`} onClick={() => store.applyTrain(id)}>
+              {tr(`train.${id}` as TextKey)}
+            </button>
+          ))}
+        </div>
+        <p className="muted small">{tr("vehicles.templates_hint")}</p>
+      </Section>
       <VehiclePalette />
       <TrainList />
       {v && (

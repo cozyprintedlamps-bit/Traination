@@ -2,8 +2,8 @@
 // reads it through useSyncExternalStore; every change replaces the state object.
 import { analyze, attach, nextPort, removePiece } from "../core/layout";
 import type { Piece, WorldPort } from "../core/layout";
-import { DEFAULT_SETTINGS, deserialize, newProject, serialize, templateLayout } from "../core/project";
-import type { Project, Settings, TemplateId } from "../core/project";
+import { DEFAULT_SETTINGS, arrangeBuildings, buildTemplate, deserialize, newProject, serialize, trainTemplate } from "../core/project";
+import type { Project, Settings, TemplateId, TrainTemplateId } from "../core/project";
 import { PLAIN, makeElement, newId } from "../core/track";
 import type { ElementKind, ElementType } from "../core/track";
 import { changeKind, makeVehicle } from "../core/vehicle";
@@ -14,6 +14,7 @@ import { makeBuilding } from "../core/buildings";
 import type { Building, BuildingKind } from "../core/buildings";
 import { rotate } from "../core/layout";
 import { TRACK_WIDTH } from "../presets/gauge";
+import { PRINTERS } from "../presets/print";
 
 export type StepId = "track" | "elements" | "vehicles" | "design" | "overview" | "export";
 export const STEPS: readonly StepId[] = ["track", "elements", "vehicles", "design", "overview", "export"];
@@ -141,7 +142,8 @@ export class Store {
     const a = analyze(project.layout, project.elements);
     const pair = pairToClose(a.open, selection.target);
     if (!pair) return "no_pair";
-    const result = closeGap(project.elements, pair[0], pair[1]);
+    const bed = (PRINTERS.find((p) => p.id === project.settings.printer) ?? PRINTERS[0])?.bed;
+    const result = closeGap(project.elements, pair[0], pair[1], { layout: project.layout, ...(bed ? { bed } : {}) });
     if (typeof result === "string") return result;
     this.update((p) => ({ ...p, elements: [...p.elements, ...result.newTypes], layout: { pieces: [...p.layout.pieces, ...result.pieces] } }), {
       ...selection,
@@ -224,21 +226,25 @@ export class Store {
     return last ? nextPort(a, last.id) : undefined;
   }
 
-  addPiece(typeId: string, turn?: "left" | "right"): void {
+  /**
+   * Adds a piece of an element type: at the free end `place.end` (from the "+" in the 3D view or a
+   * drop), at the point `place.at` as a new loose piece, or else at the current free end.
+   */
+  addPiece(typeId: string, turn?: "left" | "right", place: { end?: { piece: string; index: number }; at?: { x: number; y: number } } = {}): void {
     const { project } = this.state;
     const type = project.elements.find((e) => e.id === typeId);
     if (!type) return;
+    const loose = (x: number, y: number): Piece => ({ id: newId("p"), type: type.id, variant: turn === "right" && type.kind === "curve" ? { mirror: true, swap: false } : PLAIN, port: 0, at: { x, y, rotation: 0 } });
+    const before = analyze(project.layout, project.elements);
+    const chosen = place.end && before.open.find((p) => p.piece === place.end?.piece && p.index === place.end.index);
     let piece: Piece;
-    if (project.layout.pieces.length === 0) {
-      piece = { id: newId("p"), type: type.id, variant: turn === "right" && type.kind === "curve" ? { mirror: true, swap: false } : PLAIN, port: 0, at: { x: 0, y: 0, rotation: 0 } };
-    } else {
+    if (chosen) piece = attach(chosen, type, turn ? { turn } : {});
+    else if (place.at) piece = loose(place.at.x, place.at.y);
+    else if (project.layout.pieces.length === 0) piece = loose(0, 0);
+    else {
       const target = this.currentTarget();
-      if (!target) {
-        // a closed plan: start a new piece beside it
-        piece = { id: newId("p"), type: type.id, variant: PLAIN, port: 0, at: { x: 0, y: -300, rotation: 0 } };
-      } else {
-        piece = attach(target, type, turn ? { turn } : {});
-      }
+      // a closed plan: start a new piece beside it
+      piece = target ? attach(target, type, turn ? { turn } : {}) : loose(0, -300);
     }
     const after = structuredClone(project);
     after.layout.pieces.push(piece);
@@ -312,9 +318,22 @@ export class Store {
       // make sure the standard elements the template needs exist
       const fresh = newProject("empty").elements;
       const have = new Set(p.elements.map((e) => e.id));
-      const elements = [...p.elements, ...fresh.filter((e) => !have.has(e.id))];
-      return { ...p, elements, layout: templateLayout(template, elements) };
+      const built = buildTemplate(template, [...p.elements, ...fresh.filter((e) => !have.has(e.id))]);
+      // buildings that would stand on the new track move beside it
+      return { ...p, elements: built.elements, layout: built.layout, buildings: arrangeBuildings(built.layout, built.elements, p.buildings) };
     }, { ...this.state.selection, piece: undefined, target: undefined });
+    this.fit();
+  }
+
+  /** Removes every piece of the track (buildings and trains stay). Undo brings it back. */
+  clearTrack(): void {
+    this.update((p) => ({ ...p, layout: { pieces: [] } }), { ...this.state.selection, piece: undefined, target: undefined });
+  }
+
+  /** Replaces the train by a ready-made one. */
+  applyTrain(id: TrainTemplateId): void {
+    const vehicles = trainTemplate(id);
+    this.update((p) => ({ ...p, vehicles }), { ...this.state.selection, vehicle: vehicles[0]?.id });
     this.fit();
   }
 

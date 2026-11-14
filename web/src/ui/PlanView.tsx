@@ -1,8 +1,9 @@
-// The plan seen from above (SVG): pieces, grooves, free ends, supports and buildings. Click a
-// piece or building to select it, click a free end to build on it, drag a piece to move its whole
-// group, drag a building to move it, drag the background to pan, wheel to zoom.
+// The plan seen from above (SVG): pieces, grooves, free ends, supports and buildings. It always
+// shows the whole track (no zoom, no panning). Click a piece or building to select it, click a free
+// end to build on it, drag a piece to move its whole group, drag a building to move it. Pieces
+// dragged from the palette snap to the nearest free end.
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { footprint } from "../core/buildings";
 import type { Analysis } from "../core/layout";
 import { rotate } from "../core/layout";
@@ -12,6 +13,8 @@ import { grooveLines, outline } from "../core/track";
 import type { Selection } from "../app/store";
 import { GROOVE_SPACING, PEG_HEAD_DIAMETER, SUPPORT_LENGTH, TRACK_WIDTH } from "../presets/gauge";
 import { buildingName, tr } from "./i18n";
+import { ELEMENT_DRAG, endId } from "./TrackTools";
+import type { DropHit } from "./Viewer3D";
 
 interface View {
   cx: number;
@@ -33,16 +36,21 @@ interface Props {
   onDragStart(): void;
   onDrag(piece: string, dx: number, dy: number): void;
   onDragBuilding(id: string, dx: number, dy: number): void;
+  /** a palette item was dropped onto the plan */
+  onDropElement?(data: string, hit: DropHit): void;
 }
 
 type Pt = [number, number];
-type Drag = { kind: "pan" | "piece" | "building"; x: number; y: number; id?: string; moved: boolean };
+type Drag = { kind: "background" | "piece" | "building"; x: number; y: number; id?: string; moved: boolean };
+/** A drop this close to a free end (pixels) goes to it. */
+const DROP_REACH = 40;
 
 export function PlanView(props: Props) {
   const { project, analysis, selection, target, interactive } = props;
   const host = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<[number, number]>([400, 300]);
-  const [view, setView] = useState<View | null>(null);
+  /** while something is dragged the view stays as it was, then it fits the plan again */
+  const [frozen, setFrozen] = useState<View | null>(null);
   const drag = useRef<Drag | null>(null);
 
   useEffect(() => {
@@ -99,10 +107,7 @@ export function PlanView(props: Props) {
     const h = bounds.hi[1] - bounds.lo[1] + 80;
     return { cx: (bounds.lo[0] + bounds.hi[0]) / 2, cy: (bounds.lo[1] + bounds.hi[1]) / 2, scale: Math.max(w / size[0], h / size[1], 0.2) };
   };
-  // fit again when the plan gets its first pieces
-  const fitKey = `${shapes.length === 0}`;
-  useEffect(() => setView(null), [fitKey]);
-  const v = view ?? fitted();
+  const v = frozen ?? fitted();
 
   const toWorld = (clientX: number, clientY: number): Pt => {
     const rect = host.current?.getBoundingClientRect();
@@ -111,16 +116,8 @@ export function PlanView(props: Props) {
     return [v.cx + (px - size[0] / 2) * v.scale, v.cy - (py - size[1] / 2) * v.scale];
   };
 
-  const onWheel = (e: React.WheelEvent) => {
-    const [wx, wy] = toWorld(e.clientX, e.clientY);
-    const factor = Math.exp(e.deltaY * 0.0015);
-    const scale = Math.min(Math.max(v.scale * factor, 0.05), 20);
-    // keep the point under the mouse in place
-    setView({ cx: wx - (wx - v.cx) * (scale / v.scale), cy: wy - (wy - v.cy) * (scale / v.scale), scale });
-  };
-
   const start = (e: ReactPointerEvent, kind: Drag["kind"], id?: string) => {
-    if (kind !== "pan") e.stopPropagation();
+    if (kind !== "background") e.stopPropagation();
     drag.current = { kind, x: e.clientX, y: e.clientY, ...(id ? { id } : {}), moved: false };
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   };
@@ -130,10 +127,11 @@ export function PlanView(props: Props) {
     const dx = e.clientX - d.x;
     const dy = e.clientY - d.y;
     if (!d.moved && Math.hypot(dx, dy) < 4) return;
-    if (d.kind === "pan") {
-      setView({ ...v, cx: v.cx - dx * v.scale, cy: v.cy + dy * v.scale });
-    } else if (d.id && interactive) {
-      if (!d.moved) props.onDragStart();
+    if (d.kind !== "background" && d.id && interactive) {
+      if (!d.moved) {
+        props.onDragStart();
+        setFrozen(v);
+      }
       if (d.kind === "piece") props.onDrag(d.id, dx * v.scale, -dy * v.scale);
       else props.onDragBuilding(d.id, dx * v.scale, -dy * v.scale);
     }
@@ -144,10 +142,28 @@ export function PlanView(props: Props) {
   const onUp = () => {
     const d = drag.current;
     drag.current = null;
+    setFrozen(null);
     if (!d || d.moved) return;
-    if (d.kind === "pan") props.onSelectPiece(undefined);
+    if (d.kind === "background") props.onSelectPiece(undefined);
     else if (d.kind === "piece" && d.id) props.onSelectPiece(d.id);
     else if (d.kind === "building" && d.id) props.onSelectBuilding(d.id);
+  };
+
+  const accepts = (e: DragEvent) => props.onDropElement !== undefined && e.dataTransfer.types.includes(ELEMENT_DRAG);
+  const onDragOver = (e: DragEvent) => {
+    if (!accepts(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const onDrop = (e: DragEvent) => {
+    if (!accepts(e)) return;
+    e.preventDefault();
+    const [x, y] = toWorld(e.clientX, e.clientY);
+    const near = analysis.open
+      .map((p) => ({ p, d: Math.hypot(p.x - x, p.y - y) }))
+      .filter((n) => n.d <= DROP_REACH * v.scale)
+      .sort((a, b) => a.d - b.d)[0];
+    props.onDropElement?.(e.dataTransfer.getData(ELEMENT_DRAG), near ? { marker: endId(near.p.piece, near.p.index) } : { ground: [x, y] });
   };
 
   const viewBox = `${v.cx - (size[0] / 2) * v.scale} ${-v.cy - (size[1] / 2) * v.scale} ${size[0] * v.scale} ${size[1] * v.scale}`;
@@ -156,8 +172,8 @@ export function PlanView(props: Props) {
   const portR = PEG_HEAD_DIAMETER / 2;
 
   return (
-    <div ref={host} className="plan" data-testid="plan" onWheel={onWheel}>
-      <svg viewBox={viewBox} width={size[0]} height={size[1]} onPointerDown={(e) => start(e, "pan")} onPointerMove={onMove} onPointerUp={onUp} role="img" aria-label={tr("plan.caption")}>
+    <div ref={host} className="plan" data-testid="plan" onDragOver={onDragOver} onDrop={onDrop}>
+      <svg viewBox={viewBox} width={size[0]} height={size[1]} onPointerDown={(e) => start(e, "background")} onPointerMove={onMove} onPointerUp={onUp} role="img" aria-label={tr("plan.caption")}>
         {houses.map(({ b, corners }) => (
           <g
             key={b.id}

@@ -4,6 +4,7 @@ import type { Building } from "../core/buildings";
 import { takesStuds } from "../core/track";
 import type { ElementType, Variant } from "../core/track";
 import type { Vehicle } from "../core/vehicle";
+import { CROSSING_LENGTH } from "../presets/gauge";
 import { DE } from "./texts_de";
 import type { TextKey } from "./texts_de";
 import { EN } from "./texts_en";
@@ -66,13 +67,14 @@ function generatedName(t: ElementType): string {
     case "straight":
       return tr("name.straight", { length: t.length });
     case "curve":
-      return tr("name.curve", { radius: t.radius, angle: t.angle });
+      // fitting curves have odd angles: show two decimals so that they can be told apart
+      return tr("name.curve", { radius: t.radius, angle: formatNumber(t.angle, 2) });
     case "switch":
       return tr("name.switch", { hand: tr(t.hand === "left" ? "hand.left" : "hand.right"), radius: t.radius });
     case "yswitch":
       return tr("name.yswitch", { radius: t.radius });
     case "crossing":
-      return tr("name.crossing", { angle: t.crossAngle });
+      return t.length === CROSSING_LENGTH ? tr("name.crossing", { angle: t.crossAngle }) : tr("name.crossing_long", { angle: t.crossAngle, length: t.length });
     case "ramp":
       return tr("name.ramp", { from: t.height, to: t.height + t.rise });
     case "bridge":

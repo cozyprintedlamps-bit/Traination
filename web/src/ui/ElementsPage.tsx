@@ -135,6 +135,7 @@ export function ElementsPage() {
 
       <Section title={tr("settings.track")}>
         <Toggle label={tr("settings.double")} hint={tr("settings.double_hint")} checked={project.settings.doubleSided} onChange={(doubleSided) => store.changeSettings({ doubleSided })} />
+        <Toggle label={tr("settings.sleepers")} hint={tr("settings.sleepers_hint")} checked={project.settings.sleepers !== false} onChange={(sleepers) => store.changeSettings({ sleepers })} />
         <NumberField label={tr("settings.connector_fit")} hint={tr("settings.connector_fit_hint")} value={project.settings.connectorFit} min={0} max={1.5} step={0.05} onChange={(connectorFit) => store.changeSettings({ connectorFit })} />
         <p className="muted small">{tr("gauge.note")}</p>
       </Section>

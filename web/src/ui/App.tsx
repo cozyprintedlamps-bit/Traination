@@ -1,6 +1,7 @@
-// The page: toolbar, steps on the left, the working page, the 3D view as the stage and the plan
-// on the right ("Studio" layout from TactileManufactory).
-import { useEffect, useState } from "react";
+// The page: toolbar, steps on the left, the working page, the 3D view as the stage and a small plan
+// at the bottom right ("Studio" layout from TactileManufactory). In the track step the 3D view
+// takes dropped pieces and shows a "+" at every free end.
+import { useCallback, useEffect, useState } from "react";
 import { useAppState, useEngine, useStore } from "../app/context";
 import { STEPS } from "../app/store";
 import type { StepId } from "../app/store";
@@ -15,6 +16,8 @@ import { LANGUAGES, language, setLanguage, tr } from "./i18n";
 import type { Language, TextKey } from "./i18n";
 import { PlanView } from "./PlanView";
 import { TrackPage } from "./TrackPage";
+import { ELEMENT_DRAG, PieceMenu, dropPlace, endMarkers, parseEnd, readElementDrop } from "./TrackTools";
+import type { DropHit } from "./Viewer3D";
 import { useAnalysis, useScene } from "./useScene";
 import { VehiclesPage } from "./VehiclesPage";
 import { Viewer3D } from "./Viewer3D";
@@ -42,6 +45,24 @@ const PAGES: Record<StepId, () => React.JSX.Element> = {
   export: ExportPage,
 };
 
+/** Width of the plan panel with its margins: the 3D view centres on what it leaves free. */
+const PLAN_INSET = 348;
+/** Below this width the panels stack and nothing covers the 3D view (see styles.css). */
+const STACKED = "(max-width: 1000px)";
+
+/** True while the screen is wide enough for floating panels. */
+function useWide(): boolean {
+  const [wide, setWide] = useState(() => !window.matchMedia?.(STACKED).matches);
+  useEffect(() => {
+    const query = window.matchMedia?.(STACKED);
+    if (!query) return;
+    const update = () => setWide(!query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return wide;
+}
+
 /** Steps that show the plan on the right. */
 const WITH_PLAN: ReadonlySet<StepId> = new Set(["track", "elements", "overview", "export"]);
 
@@ -52,9 +73,21 @@ export function App() {
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [, setLang] = useState<Language>(language());
   const [notice, setNotice] = useState<string>("");
+  /** the menu of pieces at a "+" (end: undefined = the first piece of an empty plan) */
+  const [menu, setMenu] = useState<{ end?: { piece: string; index: number }; at: { left: number; top: number } } | null>(null);
   const { project, step, selection } = state;
   const analysis = useAnalysis(project);
   const scene = useScene(engine, state);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const wide = useWide();
+
+  // a changed plan or another step: the menu belongs to an end that may be gone
+  useEffect(() => setMenu(null), [project.layout, step]);
+
+  const dropElement = (data: string, hit: DropHit) => {
+    const drop = readElementDrop(data);
+    if (drop) store.addPiece(drop.type, drop.turn, dropPlace(hit));
+  };
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -113,6 +146,9 @@ export function App() {
   const Page = PAGES[step];
   const target = store.currentTarget();
   const showPlan = WITH_PLAN.has(step);
+  const building = step === "track";
+  const markers = building ? endMarkers(analysis, target) : [];
+  const empty = building && project.layout.pieces.length === 0;
   // the key of the parts that are built (not of the step): the view fits once the new parts are there
   const fitKey = `${scene.key}|${state.fitToken}`;
 
@@ -172,7 +208,41 @@ export function App() {
 
       <main className="stage">
         <div className="panel-3d">
-          <Viewer3D parts={scene.parts} fitKey={fitKey} busy={scene.busy} error={scene.error} />
+          <Viewer3D
+            parts={scene.parts}
+            fitKey={fitKey}
+            busy={scene.busy}
+            error={scene.error}
+            markers={markers}
+            onMarker={(id, at) => {
+              const end = parseEnd(id);
+              if (end) setMenu({ end, at });
+            }}
+            {...(building ? { dropType: ELEMENT_DRAG, onDrop: dropElement } : {})}
+            insetRight={showPlan && wide ? PLAN_INSET : 0}
+          >
+            {empty && !menu && (
+              <button type="button" className="button primary start-piece" data-testid="start-piece" onClick={(e) => {
+                  // the menu opens in the middle of the view
+                  const box = e.currentTarget.parentElement;
+                  setMenu({ at: { left: (box?.clientWidth ?? 800) / 2 - 140, top: (box?.clientHeight ?? 600) / 2 - 120 } });
+                }}
+              >
+                + {tr("view.start")}
+              </button>
+            )}
+            {menu && (
+              <PieceMenu
+                elements={project.elements}
+                at={menu.at}
+                onClose={closeMenu}
+                onPick={(type, turn) => {
+                  store.addPiece(type, turn, menu.end ? { end: menu.end } : {});
+                  setMenu(null);
+                }}
+              />
+            )}
+          </Viewer3D>
         </div>
 
         <nav className="panel steps" aria-label="Steps">
@@ -226,6 +296,7 @@ export function App() {
               onDragStart={() => store.beginGesture()}
               onDrag={(piece, dx, dy) => store.moveRoot(store.rootOf(piece), dx, dy, false)}
               onDragBuilding={(id, dx, dy) => store.moveBuilding(id, dx, dy)}
+              {...(building ? { onDropElement: dropElement } : {})}
             />
           </aside>
         )}
