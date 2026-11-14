@@ -2,7 +2,9 @@
 
 Generator für 3D-druckbare Holzbahn-Teile (Brio-/IKEA-kompatibel):
 
-- Strecke planen und automatisch schließen; Stützen unter erhöhter Strecke kommen von selbst.
+- Strecke aus Vorlagen oder Stück für Stück bauen: „+“ an freien Enden der 3D-Ansicht oder Teile hineinziehen.
+- Strecke automatisch schließen, auch mit berechneten Passkurven und Passgeraden; Stützen unter erhöhter Strecke kommen von selbst.
+- Schienen mit Schwellen-Optik; Rampen, Brückenpfeiler und hohe Stützen mit Bögen (weniger Filament).
 - Bahnhöfe und Gebäude aufstellen.
 - Elemente konfigurieren, auch mit LEGO-/DUPLO-kompatiblen Noppenleisten.
 - Züge aus vier Kategorien zusammenziehen, gestalten und einfärben, auch eine E-Lok mit Bambu Lab CyberBrick.

@@ -6,12 +6,18 @@
 import {
   ADAPTER_LENGTH,
   BRIDGE_HEIGHT,
+  BUFFER_BLOCK_LENGTH,
   BUFFER_LENGTH,
   CURVE_ANGLE,
   CURVE_LARGE_RADIUS,
+  CROSSING_LENGTH,
   CURVE_SMALL_RADIUS,
   RAMP_LENGTH,
   RAMP_RISE,
+  SLEEPER_GAP,
+  SLEEPER_KEEP_FEMALE,
+  SLEEPER_KEEP_MALE,
+  SLEEPER_PITCH,
   STRAIGHT_LENGTHS,
   TRACK_WIDTH,
 } from "../presets/gauge";
@@ -126,7 +132,7 @@ export function makeElement(kind: ElementKind, patch: Partial<ElementType> = {})
   if (kind === "buffer") base.length = BUFFER_LENGTH;
   if (kind === "adapter") base.length = ADAPTER_LENGTH;
   if (kind === "switch") base.length = 144;
-  if (kind === "crossing") base.length = 144;
+  if (kind === "crossing") base.length = CROSSING_LENGTH;
   return { ...base, ...patch };
 }
 
@@ -281,6 +287,33 @@ export function variantsOf(kind: ElementKind): Variant[] {
 
 /** The track stands on the bed (ramps, bridges) or lies flat; elevated flat track needs a support. */
 export const standsOnGround = (kind: ElementKind) => kind === "ramp" || kind === "bridge";
+
+/** Kinds with sleepers: one path only (switches and crossings stay closed where tracks meet). */
+export const takesSleepers = (kind: ElementKind) => kind === "straight" || kind === "curve" || kind === "ramp" || kind === "bridge" || kind === "buffer";
+
+/**
+ * Where the openings between the sleepers lie: distances along the path of the element (centre of
+ * each opening). The pattern is centred on the middle of the piece; openings keep away from the
+ * ends (the socket of a female end needs solid track around it) and from the block of a buffer.
+ */
+export function sleeperGaps(type: ElementType, variant: Variant = PLAIN): number[] {
+  if (!takesSleepers(type.kind)) return [];
+  const shape = elementShape(type, variant);
+  const path = shape.paths[0];
+  if (!path || shape.paths.length !== 1) return [];
+  const length = pathLength(path);
+  const end = type.kind === "buffer" ? length - BUFFER_BLOCK_LENGTH - 2 : length;
+  const result: number[] = [];
+  const steps = Math.floor(length / 2 / SLEEPER_PITCH) + 1;
+  for (let k = -steps; k <= steps; k++) {
+    const s = length / 2 + k * SLEEPER_PITCH;
+    if (s - SLEEPER_GAP / 2 < 0 || s + SLEEPER_GAP / 2 > end) continue;
+    const p = pointAt(path, s);
+    const clear = shape.ports.every((port) => Math.hypot(port.x - p.x, port.y - p.y) - SLEEPER_GAP / 2 >= (port.gender === "female" ? SLEEPER_KEEP_FEMALE : SLEEPER_KEEP_MALE));
+    if (clear) result.push(s);
+  }
+  return result;
+}
 
 /** The outline of an element seen from above, one closed polygon per path (for the plan). */
 export function outline(type: ElementType, variant: Variant = PLAIN, step = 4): [number, number][][] {

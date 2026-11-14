@@ -2,6 +2,7 @@
 // tests. Every build frees its manifold objects afterwards (see kernel.ts).
 import type { Manifold } from "manifold-3d";
 import type { Building } from "../core/buildings";
+import { printedMaterial } from "../core/material";
 import type { PartMesh } from "../core/mesh";
 import type { ElementType, Variant } from "../core/track";
 import type { Fits, Vehicle } from "../core/vehicle";
@@ -52,9 +53,12 @@ export function summarize(solid: Manifold): PartMesh {
     positions[i * 3 + 1] = mesh.vertProperties[i * stride + 1] as number;
     positions[i * 3 + 2] = mesh.vertProperties[i * stride + 2] as number;
   }
+  const data = { positions, indices: new Uint32Array(mesh.triVerts) };
+  const volume = solid.volume();
   return {
-    mesh: { positions, indices: new Uint32Array(mesh.triVerts) },
-    volume: solid.volume(),
+    mesh: data,
+    volume,
+    material: printedMaterial(data, volume),
     min: [box.min[0], box.min[1], box.min[2]],
     max: [box.max[0], box.max[1], box.max[2]],
     status: String(solid.status()),

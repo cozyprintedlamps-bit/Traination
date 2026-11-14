@@ -99,6 +99,7 @@ p { margin: 0; }
 .button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .button.danger { color: var(--error); }
 .button.small { height: 30px; padding: 0 10px; font-size: 13px; }
+.button.ghost { border-color: transparent; background: transparent; box-shadow: none; }
 .icon-button { width: 30px; height: 30px; border-radius: 50%; border: 0; background: transparent; cursor: pointer; }
 .icon-button:hover:not(:disabled) { background: var(--surface-2); }
 .icon-button:disabled { opacity: 0.3; }
@@ -238,15 +239,42 @@ select.input { padding-right: 6px; }
 .nav-buttons { position: absolute; z-index: 3; left: 122px; bottom: 14px; width: 404px; display: flex; justify-content: space-between; }
 .nav-buttons .button { height: 44px; padding: 0 20px; border-radius: 999px; box-shadow: var(--shadow); }
 
-.with-plan { --inset-r: 534px; }
-.panel-plan { position: absolute; z-index: 3; right: 14px; top: 76px; bottom: 14px; width: 506px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+/* the plan is a small map at the bottom right; the 3D view keeps the whole width */
+.with-plan { --inset-r: 0px; }
+.panel-plan { position: absolute; z-index: 3; right: 14px; bottom: 14px; width: 320px; height: 268px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.panel-plan .section-head { display: flex; flex-direction: column; gap: 2px; }
+.panel-plan .section-head h3 { margin: 0; font-size: 13px; }
+.panel-plan .section-head .small { font-size: 11px; line-height: 1.3; }
+.plan svg { cursor: default; }
+
+/* "+" at the free ends in the 3D view */
+.marker { position: absolute; left: 0; top: 0; z-index: 2; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--accent); background: var(--panel-bg); color: var(--accent); font-size: 20px; font-weight: 700; line-height: 1; display: grid; place-items: center; cursor: pointer; box-shadow: var(--shadow); padding: 0; }
+.marker:hover, .marker.hover { background: var(--accent); color: var(--accent-ink); transform-origin: center; }
+.marker.active { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent), var(--shadow); }
+.viewer.dropping { outline: 3px dashed color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: -6px; }
+.start-piece { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; height: 48px; padding: 0 22px; border-radius: 999px; font-size: 15px; box-shadow: var(--shadow); }
+
+/* the menu of pieces at a "+" */
+.piece-menu { position: absolute; z-index: 4; width: 300px; max-height: 330px; padding: 8px; display: flex; flex-direction: column; gap: 6px; border-radius: 16px; }
+.piece-menu-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
+.piece-menu-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.piece-menu-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 10px; }
+.piece-menu-item { border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; width: 100%; }
+.piece-menu-item:hover, .piece-menu-row:hover { background: var(--surface-2); }
+.piece-menu-name { flex: 1; font-size: 13px; min-width: 0; line-height: 1.25; }
+.piece-menu-row .button.small { padding: 0 8px; flex: none; }
+.palette-item[draggable="true"] { cursor: grab; }
+
+/* asking before the whole track is cleared */
+.confirm { margin-top: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); }
+.confirm p { margin: 0 0 8px; }
+.button.subtle { margin-top: 10px; }
 
 .statusbar { position: absolute; z-index: 7; left: calc(var(--inset-l) + (100% - var(--inset-l) - var(--inset-r)) / 2); bottom: 24px; transform: translateX(-50%); pointer-events: none; }
 .toast { display: block; padding: 8px 16px; border-radius: 999px; background: var(--panel-bg); border: 1px solid var(--panel-border); box-shadow: var(--shadow); }
 
 @media (max-width: 1400px) {
-  .with-plan { --inset-r: 434px; }
-  .panel-plan { width: 406px; }
+  .panel-plan { width: 280px; height: 236px; }
   .panel-page, .nav-buttons { width: 370px; }
   :root { --inset-l: 506px; }
 }
@@ -268,7 +296,7 @@ select.input { padding-right: 6px; }
   .step-button.selected .step-name { display: inline; }
   .panel-page { position: static; width: auto; order: 3; overflow: visible; }
   .nav-buttons { position: static; width: auto; order: 4; }
-  .panel-plan { position: static; width: auto; height: 60vh; order: 3; }
+  .panel-plan { position: static; width: auto; height: 36vh; order: 3; }
   .statusbar { left: 50%; position: fixed; }
   .field-row { grid-template-columns: 1fr; }
   .field-hint { grid-column: 1; }

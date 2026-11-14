@@ -11,6 +11,8 @@ export interface PartMesh {
   mesh: MeshData;
   /** mm3 */
   volume: number;
+  /** estimated printed material in mm3 (walls, skins and sparse infill, see core/material) */
+  material: number;
   /** min and max corner (mm) */
   min: [number, number, number];
   max: [number, number, number];

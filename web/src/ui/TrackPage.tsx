@@ -13,6 +13,7 @@ import { Field, Notice, NumberField, Section } from "./components";
 import { BuildingIcon, KindIcon } from "./Icon";
 import { buildingName, elementName, tr } from "./i18n";
 import type { TextKey } from "./i18n";
+import { startElementDrag } from "./TrackTools";
 import { useAnalysis } from "./useScene";
 
 const handed = (t: ElementType) => t.kind === "curve";
@@ -50,6 +51,7 @@ export function TrackPage() {
   const { project, selection } = state;
   const analysis = useAnalysis(project);
   const [closeMessage, setCloseMessage] = useState<{ kind: "ok" | "warning"; text: string } | null>(null);
+  const [askClear, setAskClear] = useState(false);
   const target = store.currentTarget();
   const typeOf = new Map(project.elements.map((e) => [e.id, e]));
   const selected = project.layout.pieces.find((p) => p.id === selection.piece);
@@ -64,9 +66,17 @@ export function TrackPage() {
 
   const close = () => {
     const before = project.layout.pieces.length;
+    const types = new Set(project.elements.map((e) => e.id));
     const error = store.closeTrack();
-    if (error) setCloseMessage({ kind: "warning", text: tr(`close.${error}` as TextKey) });
-    else setCloseMessage({ kind: "ok", text: tr("close.done", { n: store.getState().project.layout.pieces.length - before }) });
+    if (error) {
+      setCloseMessage({ kind: "warning", text: tr(`close.${error}` as TextKey) });
+      return;
+    }
+    const after = store.getState().project;
+    const added = after.layout.pieces.slice(before);
+    // pieces of types that did not exist before were calculated for this gap
+    const fit = added.filter((p) => !types.has(p.type)).length;
+    setCloseMessage({ kind: "ok", text: fit > 0 ? tr("close.done_fit", { n: added.length, fit }) : tr("close.done", { n: added.length }) });
   };
 
   return (
@@ -85,17 +95,17 @@ export function TrackPage() {
         <p className="muted small">{target && targetType ? tr("track.target", { name: elementName(targetType) }) : project.layout.pieces.length > 0 ? tr("track.target_none") : tr("track.add_hint")}</p>
         <div className="palette-list">
           {project.elements.map((t) => (
-            <div key={t.id} className="palette-item">
+            <div key={t.id} className="palette-item" draggable onDragStart={(e) => startElementDrag(e, t.id)} data-testid={`element-${t.id}`}>
               <span className="palette-icon" style={{ color: t.color }}>
                 <KindIcon kind={t.kind} />
               </span>
               <span className="palette-name">{elementName(t)}</span>
               {handed(t) ? (
                 <span className="palette-actions">
-                  <button type="button" className="button small" onClick={() => store.addPiece(t.id, "left")} title={tr("track.left")}>
+                  <button type="button" className="button small" draggable onDragStart={(e) => startElementDrag(e, t.id, "left")} onClick={() => store.addPiece(t.id, "left")} title={tr("track.left")}>
                     ↶ {tr("track.left")}
                   </button>
-                  <button type="button" className="button small" onClick={() => store.addPiece(t.id, "right")} title={tr("track.right")}>
+                  <button type="button" className="button small" draggable onDragStart={(e) => startElementDrag(e, t.id, "right")} onClick={() => store.addPiece(t.id, "right")} title={tr("track.right")}>
                     {tr("track.right")} ↷
                   </button>
                 </span>
@@ -110,6 +120,7 @@ export function TrackPage() {
           ))}
         </div>
         <p className="muted small">{tr("track.add_hint")}</p>
+        <p className="muted small">{tr("track.drag_hint")}</p>
       </Section>
 
       <Section title={tr("track.status")}>
@@ -131,6 +142,33 @@ export function TrackPage() {
         )}
         {closeMessage && <Notice kind={closeMessage.kind}>{closeMessage.text}</Notice>}
         {problems === 0 && analysis.open.length === 0 && project.layout.pieces.length > 0 && <Notice kind="ok">{tr("status.ok")}</Notice>}
+        {project.layout.pieces.length > 0 &&
+          (askClear ? (
+            <div className="confirm" role="alertdialog" aria-label={tr("track.clear")}>
+              <p className="small">{tr("track.clear_ask")}</p>
+              <div className="row">
+                <button
+                  type="button"
+                  className="button danger"
+                  data-testid="clear-track-yes"
+                  onClick={() => {
+                    store.clearTrack();
+                    setAskClear(false);
+                    setCloseMessage({ kind: "ok", text: tr("track.cleared") });
+                  }}
+                >
+                  {tr("track.clear_yes")}
+                </button>
+                <button type="button" className="button" onClick={() => setAskClear(false)}>
+                  {tr("common.cancel")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="button danger subtle" data-testid="clear-track" onClick={() => setAskClear(true)}>
+              {tr("track.clear")}
+            </button>
+          ))}
       </Section>
 
       <Section title={tr("track.selected")}>

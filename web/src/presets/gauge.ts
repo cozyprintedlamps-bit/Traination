@@ -55,7 +55,43 @@ export const SUPPORT_SPAN = 150;
 
 /** "Close the loop": pieces shorter than this cannot be printed as a fitting straight. */
 export const MIN_FILL_LENGTH = 20;
+/** Fitting curves are never tighter than the small standard curve. */
+export const MIN_FIT_RADIUS = 90;
+export const MAX_FIT_RADIUS = 3000;
+/** A fitting curve turns at most this much; longer arcs are split into equal pieces. */
+export const MAX_FIT_ANGLE = 90;
 
 /** Short connector pieces. */
 export const ADAPTER_LENGTH = 30;
 export const BUFFER_LENGTH = 54;
+/** the standard crossing: two straights of this length crossing in the middle */
+export const CROSSING_LENGTH = 144;
+/** The block at the end of a buffer stop. */
+export const BUFFER_BLOCK_LENGTH = 14;
+export const BUFFER_BLOCK_HEIGHT = 30;
+
+/**
+ * Sleepers: between the grooves the track is open between sleepers, like real track. The openings
+ * are rounded slots; next to each groove a wall of 2 mm stays.
+ */
+export const SLEEPER_PITCH = 18;
+/** length of an opening along the track */
+export const SLEEPER_GAP = 10;
+/** width of an opening across the track */
+export const SLEEPER_GAP_WIDTH = GROOVE_SPACING - GROOVE_WIDTH - 2 * 2;
+export const SLEEPER_GAP_ROUND = 2;
+/** no opening closer than this to a female end (the socket) or a male end */
+export const SLEEPER_KEEP_FEMALE = 22;
+export const SLEEPER_KEEP_MALE = 6;
+
+/**
+ * Arches open up the walls of ramps, the pillars of bridges and tall supports (viaduct look). The
+ * top of an arch ends in a 45° point, so that it prints without support material.
+ */
+export const ARCH_PIER = 5;
+/** solid strip on the bed below an opening */
+export const ARCH_FOOT = 3;
+/** solid strip between the top of an opening and the track */
+export const ARCH_CROWN = 4;
+/** openings lower than this are left out */
+export const ARCH_MIN_HEIGHT = 12;
