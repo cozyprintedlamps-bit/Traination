@@ -5,7 +5,7 @@
 // and revolved around the curve centre for arcs.
 import type { CrossSection, Manifold, ManifoldToplevel } from "manifold-3d";
 import { elementShape, ledges, pathLength, pointAt, sleeperGaps, smoothstep, standsOnGround } from "../core/track";
-import { STUD_FIT, studSystem } from "../presets/bricks";
+import { LEDGE_LOWERED_THICKNESS, STUD_FIT, studSystem } from "../presets/bricks";
 import type { ElementType, Path, Port, Variant } from "../core/track";
 import {
   ARCH_CROWN,
@@ -350,29 +350,36 @@ function studLedges(wasm: ManifoldToplevel, type: ElementType, variant: Variant)
       [-1, side.right],
     ] as const) {
       if (width <= 0) continue;
-      const u0 = sign > 0 ? half - 0.5 : -half - width;
-      const u1 = sign > 0 ? half + width : -half + 0.5;
-      const ledge = wasm.CrossSection.ofPolygons([
-        [
-          [u0, 0],
-          [u1, 0],
-          [u1, TRACK_HEIGHT],
-          [u0, TRACK_HEIGHT],
-        ],
-      ]);
-      parts.push(sweep(wasm, ledge, path));
+      const rows = Math.round(width / system.pitch);
+      // a slab from `a` to `b` away from the track centre, `h` high; it reaches 0.5 mm into the track body
+      const slab = (a: number, b: number, h: number) => {
+        const [lo, hi] = sign > 0 ? [a, b] : [-b, -a];
+        return wasm.CrossSection.ofPolygons([
+          [
+            [lo, 0],
+            [hi, 0],
+            [hi, h],
+            [lo, h],
+          ],
+        ]);
+      };
+      // stepped down: the first row is as high as the track, the rows behind it stand on a thin plate
+      const lowered = type.studLowered && rows > 1;
+      const flushEdge = lowered ? half + system.pitch : half + width;
+      parts.push(sweep(wasm, slab(half - 0.5, flushEdge, TRACK_HEIGHT), path));
+      if (lowered) parts.push(sweep(wasm, slab(flushEdge - 0.5, half + width, LEDGE_LOWERED_THICKNESS), path));
       // studs on the grid, centred along the path
       const n = Math.floor(length / system.pitch);
       const start = (length - n * system.pitch) / 2 + system.pitch / 2;
-      const rows = Math.round(width / system.pitch);
       for (let i = 0; i < n; i++) {
         const p = pointAt(path, start + i * system.pitch);
         const nx = -Math.sin((p.heading * Math.PI) / 180);
         const ny = Math.cos((p.heading * Math.PI) / 180);
         for (let r = 0; r < rows; r++) {
           const u = sign * (half + system.pitch * (r + 0.5));
-          let stud = wasm.Manifold.cylinder(system.height + 0.01, studR, studR, 32).translate([0, 0, TRACK_HEIGHT - 0.01]);
-          if (system.hollow > 0) stud = stud.subtract(wasm.Manifold.cylinder(system.height + 1, system.hollow / 2, system.hollow / 2, 24).translate([0, 0, TRACK_HEIGHT + 0.3]));
+          const top = lowered && r > 0 ? LEDGE_LOWERED_THICKNESS : TRACK_HEIGHT;
+          let stud = wasm.Manifold.cylinder(system.height + 0.01, studR, studR, 32).translate([0, 0, top - 0.01]);
+          if (system.hollow > 0) stud = stud.subtract(wasm.Manifold.cylinder(system.height + 1, system.hollow / 2, system.hollow / 2, 24).translate([0, 0, top + 0.3]));
           parts.push(stud.translate([p.x + nx * u, p.y + ny * u, p.z]));
         }
       }

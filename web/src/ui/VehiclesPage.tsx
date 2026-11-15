@@ -1,16 +1,19 @@
 // Step 3: the train. A palette of vehicles in four categories (drag into the train or click), the
-// train in order (drag to reorder), and the selected vehicle's kind, length, axles and couplers.
+// selected vehicle's kind, length, axles and couplers, and its look: shape options and artwork (the
+// colours are in step 4). The window next to it has the 3D model of the train and the train in order
+// (drag to reorder).
 import { useState } from "react";
 import type { DragEvent } from "react";
 import { useAppState, useStore } from "../app/context";
 import { TRAIN_TEMPLATE_IDS, clearance } from "../core/project";
-import { CATEGORIES, COUPLERS, KINDS_BY_CATEGORY, categoryOf, defaultColors, vehicleIssues } from "../core/vehicle";
-import type { Coupler, Vehicle, VehicleCategory, VehicleIssue, VehicleKind } from "../core/vehicle";
+import { CATEGORIES, COUPLERS, DECORS, HAS_CHIMNEY, HAS_DOME, HAS_LOAD, HAS_ROOF, HAS_WINDOWS, KINDS_BY_CATEGORY, LETTERING_MAX, LOCOMOTIVES, categoryOf, cleanLettering, defaultColors, vehicleIssues } from "../core/vehicle";
+import type { Coupler, Decor, Vehicle, VehicleCategory, VehicleDesign, VehicleIssue, VehicleKind } from "../core/vehicle";
 import { MAGNET_CATALOG, VEHICLE_MAX_LENGTH, VEHICLE_MIN_LENGTH } from "../presets/vehicle";
-import { Choice, Field, Notice, NumberField, Section } from "./components";
+import { Choice, Field, Notice, NumberField, Section, Toggle } from "./components";
 import { VehicleIcon } from "./Icon";
 import { tr, vehicleName } from "./i18n";
 import type { TextKey } from "./i18n";
+import { VehicleModel } from "./VehicleModel";
 
 const KIND_TYPE = "application/x-traination-kind";
 const VEHICLE_TYPE = "application/x-traination-vehicle";
@@ -71,9 +74,25 @@ function VehiclePalette() {
   );
 }
 
+/** One vehicle or the whole train in the 3D model. */
+function ViewToggle() {
+  const { trainView } = useAppState();
+  const store = useStore();
+  return (
+    <div className="segmented" role="radiogroup">
+      <button type="button" role="radio" aria-checked={!trainView} className={`seg${!trainView ? " selected" : ""}`} onClick={() => store.setTrainView(false)}>
+        {tr("view.vehicle")}
+      </button>
+      <button type="button" role="radio" aria-checked={trainView} className={`seg${trainView ? " selected" : ""}`} onClick={() => store.setTrainView(true)}>
+        {tr("view.train")}
+      </button>
+    </div>
+  );
+}
+
 /** The train in order; vehicles and palette tiles can be dropped between the cars. */
-export function TrainList() {
-  const { project, selection, trainView } = useAppState();
+function TrainList() {
+  const { project, selection } = useAppState();
   const store = useStore();
   const [dropAt, setDropAt] = useState<number | null>(null);
 
@@ -99,16 +118,7 @@ export function TrainList() {
   return (
     <Section
       title={tr("vehicles.train")}
-      aside={
-        <div className="segmented" role="radiogroup">
-          <button type="button" role="radio" aria-checked={!trainView} className={`seg${!trainView ? " selected" : ""}`} onClick={() => store.setTrainView(false)}>
-            {tr("view.vehicle")}
-          </button>
-          <button type="button" role="radio" aria-checked={trainView} className={`seg${trainView ? " selected" : ""}`} onClick={() => store.setTrainView(true)}>
-            {tr("view.train")}
-          </button>
-        </div>
-      }
+      aside={<ViewToggle />}
     >
       {project.vehicles.length === 0 && <p className="muted small">{tr("vehicles.empty")}</p>}
       <div
@@ -166,6 +176,67 @@ export function TrainList() {
   );
 }
 
+/** The shape options and the artwork of a vehicle: windows, roof, height, pattern, lettering, lamps, buffers … */
+function VehicleLook({ v, index }: { v: Vehicle; index: number }) {
+  const store = useStore();
+  const design = (patch: Partial<VehicleDesign>) => store.changeVehicle(v.id, (x: Vehicle) => ({ ...x, design: { ...x.design, ...patch } }));
+  const loco = LOCOMOTIVES.has(v.kind);
+  return (
+    <Section title={tr("design.for", { name: vehicleName(v, index) })}>
+      <h4 className="subhead">{tr("design.options")}</h4>
+      {HAS_WINDOWS.has(v.kind) && <Toggle label={tr("field.windows")} checked={v.design.windows} onChange={(windows) => design({ windows })} />}
+      {HAS_CHIMNEY.has(v.kind) && (
+        <Field label={tr("field.chimney")}>
+          <Choice
+            value={v.design.chimney}
+            options={(["tall", "short", "funnel", "none"] as const).map((c) => ({ value: c, label: tr(`chimney.${c}` as TextKey) }))}
+            onChange={(chimney) => design({ chimney })}
+          />
+        </Field>
+      )}
+      {HAS_DOME.has(v.kind) && <Toggle label={tr("field.dome")} checked={v.design.dome} onChange={(dome) => design({ dome })} />}
+      {HAS_ROOF.has(v.kind) && (
+        <Field label={tr("field.roof")}>
+          <Choice value={v.design.roof} options={(["round", "flat", "peaked"] as const).map((r) => ({ value: r, label: tr(`roof.${r}` as TextKey) }))} onChange={(roof) => design({ roof })} />
+        </Field>
+      )}
+      {HAS_LOAD.has(v.kind) && v.kind !== "crane" && <Toggle label={tr("field.load")} checked={v.design.load} onChange={(load) => design({ load })} />}
+      <NumberField label={tr("field.body_height")} hint={tr("field.body_height_hint")} value={v.design.height} min={0} max={60} onChange={(height) => design({ height })} />
+
+      <h4 className="subhead">{tr("design.art")}</h4>
+      <Field label={tr("field.decor")}>
+        <Choice<Decor> value={v.design.decor} options={DECORS.map((d) => ({ value: d, label: tr(`decor.${d}` as TextKey) }))} onChange={(decor) => design({ decor })} />
+      </Field>
+      <Field label={tr("field.lettering")} hint={tr("field.lettering_hint")}>
+        <input
+          className="input"
+          value={v.design.lettering}
+          maxLength={LETTERING_MAX + 4}
+          placeholder="EMMA 1"
+          onChange={(e) => design({ lettering: cleanLettering(e.target.value) })}
+          data-testid="lettering"
+        />
+      </Field>
+      {loco && <Toggle label={tr("field.face")} checked={v.design.face} onChange={(face) => design({ face })} />}
+      {loco && <Toggle label={tr("field.lamps")} checked={v.design.lamps} onChange={(lamps) => design({ lamps })} />}
+      <Toggle label={tr("field.buffers")} checked={v.design.buffers} onChange={(buffers) => design({ buffers })} />
+      {loco && <Toggle label={tr("field.cowcatcher")} hint={tr("field.cowcatcher_hint")} checked={v.design.cowcatcher} onChange={(cowcatcher) => design({ cowcatcher })} />}
+    </Section>
+  );
+}
+
+/** The window next to the page in the steps trains and design: the 3D model of the train, under it the train in order. */
+export function VehiclesWindow() {
+  return (
+    <>
+      <VehicleModel />
+      <div className="detail-scroll">
+        <TrainList />
+      </div>
+    </>
+  );
+}
+
 export function VehiclesPage() {
   const { project, selection } = useAppState();
   const store = useStore();
@@ -189,7 +260,6 @@ export function VehiclesPage() {
         <p className="muted small">{tr("vehicles.templates_hint")}</p>
       </Section>
       <VehiclePalette />
-      <TrainList />
       {v && (
         <Section title={vehicleName(v, index)}>
           <Field label={tr("vehicles.kind")}>
@@ -261,6 +331,7 @@ export function VehiclesPage() {
           </div>
         </Section>
       )}
+      {v && <VehicleLook v={v} index={index} />}
     </>
   );
 }

@@ -93,7 +93,7 @@ export function VehicleIcon({ kind, color }: { kind: VehicleKind; color: string 
   );
 }
 
-export type IconName = "new" | "open" | "save" | "undo" | "redo" | "theme" | "fit";
+export type IconName = "new" | "open" | "save" | "undo" | "redo" | "theme" | "fit" | "trash" | "chevron";
 
 export function Icon({ name }: { name: IconName }) {
   const d: Record<IconName, string> = {
@@ -104,6 +104,8 @@ export function Icon({ name }: { name: IconName }) {
     redo: "M15 7l5 5-5 5 M20 12H9a5 5 0 0 0 0 10h3",
     theme: "M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z",
     fit: "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5",
+    trash: "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6 M14 11v6",
+    chevron: "M6 9l6 6 6-6",
   };
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

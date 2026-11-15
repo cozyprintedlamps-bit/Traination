@@ -59,6 +59,8 @@ export interface ElementType {
   studSide: "left" | "right" | "both";
   /** rows of studs on each ledge */
   studRows: number;
+  /** stepped down: the rows behind the first one stand on a thin plate instead of full track height */
+  studLowered: boolean;
 }
 
 /** How a piece is used: mirrored (a left curve becomes a right one) and/or with its genders swapped. */
@@ -108,6 +110,7 @@ const DEFAULTS: Omit<ElementType, "id" | "kind" | "name" | "color"> = {
   studs: "none",
   studSide: "both",
   studRows: 1,
+  studLowered: false,
 };
 
 /** Kinds that can carry a stud ledge. */
@@ -152,8 +155,6 @@ export function standardElements(): ElementType[] {
     makeElement("buffer", { id: "buffer" }),
     makeElement("adapter", { id: "adapter-mm", adapter: "male" }),
     makeElement("adapter", { id: "adapter-ff", adapter: "female" }),
-    makeElement("straight", { id: "straight-216-lego", length: 216, studs: "lego" }),
-    makeElement("straight", { id: "straight-216-duplo", length: 216, studs: "duplo", studSide: "left" }),
   ];
 }
 

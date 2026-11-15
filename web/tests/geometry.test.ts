@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createEngine } from "../src/geometry/engine";
 import type { Engine, VehicleMeshes } from "../src/geometry/engine";
 import { BUILDING_KINDS, makeBuilding } from "../src/core/buildings";
-import { LEGO } from "../src/presets/bricks";
+import { LEDGE_LOWERED_THICKNESS, LEDGE_ROWS_MAX, LEGO } from "../src/presets/bricks";
 import { DRIVE } from "../src/presets/cyberbrick";
 import { PLAIN, makeElement, standardElements } from "../src/core/track";
 import { DEFAULT_FITS, VEHICLE_KINDS, chassisSizes, makeVehicle } from "../src/core/vehicle";
@@ -163,6 +163,34 @@ describe("stud ledges, supports and buildings", () => {
     expect(lego.max[2]).toBeCloseTo(TRACK_HEIGHT + LEGO.height, 2);
     const duplo = engine.element(makeElement("curve", { studs: "duplo", studSide: "both" }), PLAIN, options);
     expect(duplo.status).toBe("NoError");
+  });
+
+  it("a stepped-down ledge keeps the first row at track height and saves the slab behind it", () => {
+    const rows = 4;
+    const flush = engine.element(makeElement("straight", { length: 216, studs: "lego", studSide: "left", studRows: rows }), PLAIN, options);
+    const lowered = engine.element(makeElement("straight", { length: 216, studs: "lego", studSide: "left", studRows: rows, studLowered: true }), PLAIN, options);
+    expect(lowered.status).toBe("NoError");
+    // the same width, the studs of the first row still reach the old height
+    expect(lowered.max[1]).toBeCloseTo(flush.max[1], 3);
+    expect(lowered.max[2]).toBeCloseTo(TRACK_HEIGHT + LEGO.height, 2);
+    // what is saved: the slab of the rows behind the first, from track height down to the thin plate
+    const saved = (rows - 1) * LEGO.pitch * (TRACK_HEIGHT - LEDGE_LOWERED_THICKNESS) * 216;
+    expect(flush.volume - lowered.volume).toBeGreaterThan(saved * 0.97);
+    expect(flush.volume - lowered.volume).toBeLessThan(saved * 1.03);
+    // with one row there is nothing to step down
+    const one = engine.element(makeElement("straight", { length: 216, studs: "lego", studSide: "left", studRows: 1 }), PLAIN, options);
+    const oneLowered = engine.element(makeElement("straight", { length: 216, studs: "lego", studSide: "left", studRows: 1, studLowered: true }), PLAIN, options);
+    expect(oneLowered.volume).toBeCloseTo(one.volume, 3);
+    // on both sides and on a curve
+    const both = engine.element(makeElement("curve", { studs: "duplo", studSide: "both", studRows: 3, studLowered: true }), PLAIN, options);
+    expect(both.status).toBe("NoError");
+    expect(both.max[2]).toBeCloseTo(TRACK_HEIGHT + 4.5, 2);
+  });
+
+  it("the widest ledge, 20 rows, builds clean", () => {
+    const m = engine.element(makeElement("straight", { length: 216, studs: "lego", studSide: "both", studRows: LEDGE_ROWS_MAX, studLowered: true }), PLAIN, options);
+    expect(m.status).toBe("NoError");
+    expect(m.max[1] - m.min[1]).toBeCloseTo(TRACK_WIDTH + 2 * LEDGE_ROWS_MAX * LEGO.pitch, 2);
   });
 
   it("a support is as high as the track above it", () => {

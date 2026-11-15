@@ -1,17 +1,19 @@
-// The plan seen from above (SVG): pieces, grooves, free ends, supports and buildings. It always
-// shows the whole track (no zoom, no panning). Click a piece or building to select it, click a free
+// The plan seen from above (SVG): pieces, grooves, free ends, supports, buildings and the train
+// standing on the track. It always shows the whole track (no zoom, no panning). Click a piece or building to select it, click a free
 // end to build on it, drag a piece to move its whole group, drag a building to move it. Pieces
 // dragged from the palette snap to the nearest free end.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { footprint } from "../core/buildings";
 import type { Analysis } from "../core/layout";
-import { rotate } from "../core/layout";
+import { pieceColor, rotate } from "../core/layout";
 import type { Project } from "../core/project";
+import { route, trainPoses } from "../core/route";
 import { supports } from "../core/supports";
 import { grooveLines, outline } from "../core/track";
 import type { Selection } from "../app/store";
 import { GROOVE_SPACING, PEG_HEAD_DIAMETER, SUPPORT_LENGTH, TRACK_WIDTH } from "../presets/gauge";
+import { VEHICLE_WIDTH } from "../presets/vehicle";
 import { buildingName, tr } from "./i18n";
 import { ELEMENT_DRAG, endId } from "./TrackTools";
 import type { DropHit } from "./Viewer3D";
@@ -79,6 +81,7 @@ export function PlanView(props: Props) {
           piece,
           type,
           z: pose.z,
+          color: pieceColor(piece, type),
           polygons: outline(type, piece.variant).map((poly) => poly.map(place)),
           grooves: grooveLines(type, piece.variant, GROOVE_SPACING).map((line) => line.map(place)),
         },
@@ -87,6 +90,23 @@ export function PlanView(props: Props) {
   }, [project.layout, typeOf, analysis]);
 
   const pillars = useMemo(() => supports(project.layout, project.elements, analysis), [project.layout, project.elements, analysis]);
+  // the train as the 3D view stands it on the route: a rectangle per vehicle, the first with a nose
+  const cars = useMemo(() => {
+    const poses = trainPoses(route(project.layout, project.elements, analysis), project.vehicles.map((v) => v.length));
+    return project.vehicles.flatMap((v, i) => {
+      const pose = poses[i];
+      if (!pose) return [];
+      const h = v.length / 2;
+      const w = VEHICLE_WIDTH / 2;
+      const place = ([x, y]: Pt): Pt => {
+        const [rx, ry] = rotate(x, y, pose.rotation);
+        return [rx + pose.x, ry + pose.y];
+      };
+      const body = ([[-h, -w], [h, -w], [h, w], [-h, w]] as Pt[]).map(place);
+      const nose = i === 0 ? ([[h, -w * 0.55], [h + w * 0.9, 0], [h, w * 0.55]] as Pt[]).map(place) : undefined;
+      return [{ v, body, nose }];
+    });
+  }, [project.layout, project.elements, project.vehicles, analysis]);
   const houses = useMemo(() => project.buildings.map((b) => ({ b, corners: footprint(b) })), [project.buildings]);
 
   const bounds = useMemo(() => {
@@ -183,6 +203,7 @@ export function PlanView(props: Props) {
             onPointerUp={onUp}
           >
             <polygon points={corners.map(flip).join(" ")} style={{ fill: b.colors.walls }} vectorEffect="non-scaling-stroke" />
+            {selection.building === b.id && <polygon className="tint" points={corners.map(flip).join(" ")} vectorEffect="non-scaling-stroke" />}
             <text x={b.x} y={-b.y} fontSize={Math.max(8, Math.min(b.width, b.length) / 4)} textAnchor="middle" dominantBaseline="middle">
               {buildingName(b)}
             </text>
@@ -210,7 +231,7 @@ export function PlanView(props: Props) {
             return (
               <g key={s.piece.id} className={`piece${selected ? " selected" : ""}${marked ? " marked" : ""}${s.z > 0.5 ? " raised" : ""} ${problem}`} onPointerDown={(e) => start(e, "piece", s.piece.id)} onPointerMove={onMove} onPointerUp={onUp}>
                 {s.polygons.map((poly, i) => (
-                  <polygon key={i} points={poly.map(flip).join(" ")} style={{ fill: s.type.color }} vectorEffect="non-scaling-stroke" />
+                  <polygon key={i} points={poly.map(flip).join(" ")} style={{ fill: s.color }} vectorEffect="non-scaling-stroke" />
                 ))}
                 {s.grooves.map((line, i) => (
                   <polyline key={`g${i}`} className="groove" points={line.map(flip).join(" ")} vectorEffect="non-scaling-stroke" />
@@ -218,6 +239,25 @@ export function PlanView(props: Props) {
               </g>
             );
           })}
+        <g className="train">
+          {cars.map(({ v, body, nose }) => (
+            <g key={v.id} className={selection.car === v.id ? "selected" : ""}>
+              <polygon className="car" points={body.map(flip).join(" ")} style={{ fill: v.colors.body }} vectorEffect="non-scaling-stroke" />
+              {nose && <polygon className="car-nose" points={nose.map(flip).join(" ")} />}
+            </g>
+          ))}
+        </g>
+        {/* the selected piece is marked blue on top of everything, so the order of the pieces stays as it is */}
+        <g className="tints">
+          {shapes
+            .filter((s) => s.piece.id === selection.piece)
+            .flatMap((s) => s.polygons.map((poly, i) => <polygon key={`${s.piece.id}:${i}`} className="tint" points={poly.map(flip).join(" ")} vectorEffect="non-scaling-stroke" />))}
+          {cars
+            .filter(({ v }) => v.id === selection.car)
+            .map(({ v, body }) => (
+              <polygon key={v.id} className="tint car-tint" points={body.map(flip).join(" ")} vectorEffect="non-scaling-stroke" />
+            ))}
+        </g>
         {analysis.joints
           .filter((j) => !j.fits)
           .map((j, i) => (

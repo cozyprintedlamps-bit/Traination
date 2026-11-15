@@ -1,5 +1,6 @@
 import { unzipSync, strFromU8 } from "fflate";
 import { beforeAll, describe, expect, it } from "vitest";
+import { Store } from "../src/app/store";
 import { newProject, deserialize, serialize } from "../src/core/project";
 import { createEngine } from "../src/geometry/engine";
 import type { Engine } from "../src/geometry/engine";
@@ -40,6 +41,19 @@ describe("print beds", () => {
         expect(apart).toBe(true);
       }
     }
+  });
+
+  it("a piece in its own colour is a part of its own with its own filament", async () => {
+    const store = new Store(newProject("oval"));
+    const straight = store.getState().project.layout.pieces.find((p) => p.type === "straight-144")!;
+    store.setPieceColor(straight.id, "#C12E1F");
+    const project = store.getState().project;
+    const items = await trackItems(project, engine, names);
+    const own = items.filter((i) => i.name.startsWith("straight-144"));
+    expect(own.map((i) => [i.color.toUpperCase(), i.count]).sort()).toEqual([["#C12E1F", 1], [project.elements.find((e) => e.id === "straight-144")!.color.toUpperCase(), 1]].sort());
+    const files = writeFiles(pack(items, printerById("p1s").bed), "track", printerById("p1s"));
+    const settings = JSON.parse(strFromU8(unzipSync(files[0]!.data)["Metadata/project_settings.config"]!));
+    expect(settings.filament_colour).toContain("#C12E1F");
   });
 
   it("writes 3MF files with at most four plates and the colours of the parts", async () => {

@@ -1,6 +1,7 @@
 // A whole Traination project: element types, the track plan, the train and the settings. Saved
 // as a `.trproj` file (JSON with a schema version).
 import { BRIDGE_DECK, BRIDGE_HEIGHT, TRACK_HEIGHT, TRACK_WIDTH } from "../presets/gauge";
+import { LEDGE_ROWS_MAX } from "../presets/bricks";
 import { DEFAULT_CONNECTOR_FIT, DEFAULT_PRINTER } from "../presets/print";
 import { closeGap } from "./autoclose";
 import { analyze, attach, nextPort, rotate } from "./layout";
@@ -15,6 +16,7 @@ import type { Fits, Vehicle, VehicleColors, VehicleKind } from "./vehicle";
 /** 2: buildings, seven colour slots per vehicle (was: accent), design with decoration. */
 export const SCHEMA_VERSION = 2;
 export const FILE_EXTENSION = ".trproj";
+const PIECE_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 export interface Settings {
   /** grooves on both faces: a curve turned over is the other hand */
@@ -120,6 +122,40 @@ export function templateTypes(): ElementType[] {
   return [makeElement("crossing", { id: "crossing-148", length: 148 })];
 }
 
+/**
+ * Element types with studs that the first versions had among the standard ones. Studs are set in the
+ * configurator now, on the plain piece (`base`). On load such a type goes: when no piece uses it, it
+ * is dropped; when pieces use it, they move to the plain piece, which takes over the studs (if it has
+ * none yet and has the same length, else the type stays).
+ */
+const LEGACY_STUD_ELEMENTS: readonly { id: string; base: string }[] = [
+  { id: "straight-216-lego", base: "straight-216" },
+  { id: "straight-216-duplo", base: "straight-216" },
+];
+
+function mergeLegacyStudElements<P extends { type: string; color?: string }>(elements: ElementType[], pieces: P[]): { elements: ElementType[]; pieces: P[] } {
+  let types = elements;
+  let placed = pieces;
+  for (const { id, base: baseId } of LEGACY_STUD_ELEMENTS) {
+    const legacy = types.find((e) => e.id === id);
+    if (!legacy) continue;
+    if (placed.some((p) => p.type === id)) {
+      const base = types.find((e) => e.id === baseId);
+      if (!base || base.studs !== "none" || base.kind !== legacy.kind || base.length !== legacy.length) continue;
+      types = types.map((e) => (e.id === baseId ? { ...e, studs: legacy.studs, studSide: legacy.studSide, studRows: legacy.studRows, studLowered: legacy.studLowered } : e));
+      placed = placed.map((p) => (p.type === id ? { ...p, type: baseId, ...(p.color === undefined && legacy.color !== base.color ? { color: legacy.color } : {}) } : p));
+    }
+    types = types.filter((e) => e.id !== id);
+  }
+  return { elements: types, pieces: placed };
+}
+
+/** The given element types plus the standard ones a template may need that are missing (e.g. removed by the user). */
+export function withStandardElements(elements: ElementType[]): ElementType[] {
+  const have = new Set(elements.map((e) => e.id));
+  return [...elements, ...newProject("empty").elements.filter((e) => !have.has(e.id))];
+}
+
 /** The plan of a template and the element types it uses (the given ones plus what it adds). */
 export function buildTemplate(id: TemplateId, elements: ElementType[]): { layout: Layout; elements: ElementType[] } {
   const have = new Set(elements.map((e) => e.id));
@@ -137,9 +173,13 @@ export function buildTemplate(id: TemplateId, elements: ElementType[]): { layout
     case "oval_large":
       loop("straight-216", ["straight-216", ...large("left", 4), "straight-216", "straight-216", ...large("left", 4)]);
       break;
-    case "lego":
-      loop("straight-216-lego", ["straight-216-lego", ...large("left", 4), "straight-216-lego", "straight-216-lego", ...large("left", 4)]);
+    case "lego": {
+      // the 216 mm straight gets LEGO studs (unless it has studs already): studs are set on the standard piece
+      const plain = t.types.findIndex((e) => e.id === "straight-216" && e.studs === "none");
+      if (plain >= 0) t.types[plain] = { ...(t.types[plain] as ElementType), studs: "lego" };
+      loop("straight-216", ["straight-216", ...large("left", 4), "straight-216", "straight-216", ...large("left", 4)]);
       break;
+    }
     case "siding": {
       // an oval with a switch, from which a short siding with a buffer stop branches off
       const sw = t.root("switch-right");
@@ -353,7 +393,13 @@ export function deserialize(text: string): Project {
   if (raw.schema > SCHEMA_VERSION) throw new ProjectFileError("too_new");
   const base = newProject("empty");
   const elements = Array.isArray(raw.elements)
-    ? raw.elements.filter((e) => ELEMENT_KINDS.includes(e?.kind)).map((e) => ({ ...makeElement(e.kind), ...e }))
+    ? raw.elements.filter((e) => ELEMENT_KINDS.includes(e?.kind)).map((e) => {
+        const element = { ...makeElement(e.kind), ...e };
+        // the stud ledge: a row count outside the limits or a flag of another type would hang the engine or be ignored
+        element.studRows = Math.min(Math.max(Math.round(Number(element.studRows)) || 1, 1), LEDGE_ROWS_MAX);
+        element.studLowered = element.studLowered === true;
+        return element;
+      })
     : base.elements;
   const vehicles = Array.isArray(raw.vehicles)
     ? raw.vehicles
@@ -385,11 +431,18 @@ export function deserialize(text: string): Project {
       })
     : [];
   const pieces = Array.isArray(raw.layout?.pieces) ? raw.layout.pieces.filter((p) => typeof p?.id === "string" && typeof p.type === "string") : [];
+  const merged = mergeLegacyStudElements(elements, pieces);
   return {
     schema: SCHEMA_VERSION,
     name: typeof raw.name === "string" ? raw.name : "",
-    elements,
-    layout: { pieces: pieces.map((p) => ({ ...p, variant: { ...PLAIN, ...p.variant }, port: p.port ?? 0 })) },
+    elements: merged.elements,
+    layout: {
+      pieces: merged.pieces.map((p) => {
+        // an own colour must be "#RRGGBB", else the piece has the colour of its type
+        const { color, ...rest } = p;
+        return { ...rest, ...(typeof color === "string" && PIECE_COLOR.test(color) ? { color } : {}), variant: { ...PLAIN, ...p.variant }, port: p.port ?? 0 };
+      }),
+    },
     vehicles,
     buildings,
     settings: { ...DEFAULT_SETTINGS, ...raw.settings, fits: { ...DEFAULT_FITS, ...raw.settings?.fits } },

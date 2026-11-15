@@ -1,13 +1,16 @@
-// The page: toolbar, steps on the left, the working page, the 3D view as the stage and a small plan
-// at the bottom right ("Studio" layout from TactileManufactory). In the track step the 3D view
-// takes dropped pieces and shows a "+" at every free end.
-import { useCallback, useEffect, useState } from "react";
+// The page: toolbar, steps on the left, the working page, the 3D view as the stage and the plan
+// with the structure tree of its parts on the whole right side ("Studio" layout from
+// TactileManufactory). In the track step the 3D view takes dropped pieces and shows a "+" at every
+// free end. In the steps elements, trains and design a second window of the same size opens next to
+// the page (the 3D model of the element or the train, and more); the 3D view behind it keeps showing
+// the track. The plan with the structure tree is on the right in every step.
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppState, useEngine, useStore } from "../app/context";
 import { STEPS } from "../app/store";
 import type { StepId } from "../app/store";
 import { ProjectFileError } from "../core/project";
 import { DesignPage } from "./DesignPage";
-import { ElementsPage } from "./ElementsPage";
+import { ElementDetail, ElementsPage } from "./ElementsPage";
 import { ExportPage } from "./ExportPage";
 import { OverviewPage } from "./OverviewPage";
 import { download, pickTextFile } from "./files";
@@ -15,11 +18,12 @@ import { Icon } from "./Icon";
 import { LANGUAGES, language, setLanguage, tr } from "./i18n";
 import type { Language, TextKey } from "./i18n";
 import { PlanView } from "./PlanView";
+import { StructureTree } from "./StructureTree";
 import { TrackPage } from "./TrackPage";
 import { ELEMENT_DRAG, PieceMenu, dropPlace, endMarkers, parseEnd, readElementDrop } from "./TrackTools";
 import type { DropHit } from "./Viewer3D";
 import { useAnalysis, useScene } from "./useScene";
-import { VehiclesPage } from "./VehiclesPage";
+import { VehiclesPage, VehiclesWindow } from "./VehiclesPage";
 import { Viewer3D } from "./Viewer3D";
 import { serialize } from "../core/project";
 
@@ -45,26 +49,31 @@ const PAGES: Record<StepId, () => React.JSX.Element> = {
   export: ExportPage,
 };
 
-/** Width of the plan panel with its margins: the 3D view centres on what it leaves free. */
-const PLAN_INSET = 348;
+/** The steps with a second window next to the page (to the right of it). */
+const WINDOWS: Partial<Record<StepId, () => React.JSX.Element>> = {
+  elements: ElementDetail,
+  vehicles: VehiclesWindow,
+  design: VehiclesWindow,
+};
+
+/** Space around the plan panel (pixels, both sides): the 3D view centres on what it leaves free. */
+const PLAN_MARGIN = 28;
 /** Below this width the panels stack and nothing covers the 3D view (see styles.css). */
 const STACKED = "(max-width: 1000px)";
 
-/** True while the screen is wide enough for floating panels. */
-function useWide(): boolean {
-  const [wide, setWide] = useState(() => !window.matchMedia?.(STACKED).matches);
+/** Follows a media query. */
+function useMedia(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia?.(query).matches ?? false);
   useEffect(() => {
-    const query = window.matchMedia?.(STACKED);
-    if (!query) return;
-    const update = () => setWide(!query.matches);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  return wide;
+    const list = window.matchMedia?.(query);
+    if (!list) return;
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, [query]);
+  return matches;
 }
-
-/** Steps that show the plan on the right. */
-const WITH_PLAN: ReadonlySet<StepId> = new Set(["track", "elements", "overview", "export"]);
 
 export function App() {
   const state = useAppState();
@@ -79,10 +88,36 @@ export function App() {
   const analysis = useAnalysis(project);
   const scene = useScene(engine, state);
   const closeMenu = useCallback(() => setMenu(null), []);
-  const wide = useWide();
+  const wide = !useMedia(STACKED);
+  const planPanel = useRef<HTMLElement>(null);
+  /** pixels on the right the plan panel covers (0: nothing, the panels stack) */
+  const [planInset, setPlanInset] = useState(0);
 
   // a changed plan or another step: the menu belongs to an end that may be gone
   useEffect(() => setMenu(null), [project.layout, step]);
+
+  useEffect(() => {
+    const panel = planPanel.current;
+    if (!panel || !wide) {
+      setPlanInset(0);
+      return;
+    }
+    const measure = () => setPlanInset(panel.offsetWidth + PLAN_MARGIN);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [wide]);
+
+  /** A click on a piece in the plan or the tree. In the pieces step it also picks the piece's element. */
+  const selectPiece = (id: string | undefined) => {
+    if (step === "elements" && id) {
+      const piece = project.layout.pieces.find((p) => p.id === id);
+      store.select({ element: piece?.type, piece: id, building: undefined, car: undefined });
+    } else store.select({ piece: id, building: undefined, car: undefined });
+  };
+  const selectBuilding = (id: string) => store.select({ building: id, piece: undefined, car: undefined });
+  const selectCar = (id: string) => store.select({ car: id, vehicle: id });
 
   const dropElement = (data: string, hit: DropHit) => {
     const drop = readElementDrop(data);
@@ -144,8 +179,8 @@ export function App() {
 
   const index = STEPS.indexOf(step);
   const Page = PAGES[step];
+  const StepWindow = WINDOWS[step];
   const target = store.currentTarget();
-  const showPlan = WITH_PLAN.has(step);
   const building = step === "track";
   const markers = building ? endMarkers(analysis, target) : [];
   const empty = building && project.layout.pieces.length === 0;
@@ -153,7 +188,7 @@ export function App() {
   const fitKey = `${scene.key}|${state.fitToken}`;
 
   return (
-    <div className={`app${showPlan ? " with-plan" : ""}`}>
+    <div className={`app with-plan${StepWindow ? " with-detail" : ""}`}>
       <header className="toolbar">
         <div className="tb-group">
           <span className="brand">
@@ -219,13 +254,13 @@ export function App() {
               if (end) setMenu({ end, at });
             }}
             {...(building ? { dropType: ELEMENT_DRAG, onDrop: dropElement } : {})}
-            insetRight={showPlan && wide ? PLAN_INSET : 0}
+            insetRight={planInset}
           >
             {empty && !menu && (
               <button type="button" className="button primary start-piece" data-testid="start-piece" onClick={(e) => {
                   // the menu opens in the middle of the view
                   const box = e.currentTarget.parentElement;
-                  setMenu({ at: { left: (box?.clientWidth ?? 800) / 2 - 140, top: (box?.clientHeight ?? 600) / 2 - 120 } });
+                  setMenu({ at: { left: ((box?.clientWidth ?? 800) - planInset) / 2 - 140, top: (box?.clientHeight ?? 600) / 2 - 120 } });
                 }}
               >
                 + {tr("view.start")}
@@ -259,9 +294,15 @@ export function App() {
         </nav>
 
         <section className="panel panel-page">
-          <h2 className="heading">{tr(`page.${step}` as TextKey)}</h2>
+          <h2 className="heading">{tr(step === "elements" ? "elements.standard" : (`page.${step}` as TextKey))}</h2>
           <Page />
         </section>
+
+        {StepWindow && (
+          <aside className="panel panel-detail" data-testid="detail">
+            <StepWindow />
+          </aside>
+        )}
 
         <div className="nav-buttons">
           <button type="button" className="button" disabled={index === 0} onClick={() => store.setStep(STEPS[index - 1] as StepId)}>
@@ -272,34 +313,37 @@ export function App() {
           </button>
         </div>
 
-        {showPlan && (
-          <aside className="panel panel-plan">
-            <header className="section-head">
-              <h3>{tr("plan.caption")}</h3>
-              <span className="muted small">{tr("plan.hint")}</span>
-            </header>
-            <PlanView
-              project={project}
-              analysis={analysis}
-              selection={selection}
-              target={target ? { piece: target.piece, index: target.index } : undefined}
-              interactive={step === "track"}
-              highlightElement={step === "elements" ? selection.element : undefined}
-              onSelectPiece={(id) => {
-                if (step === "elements" && id) {
-                  const piece = project.layout.pieces.find((p) => p.id === id);
-                  store.select({ element: piece?.type, piece: id });
-                } else store.select({ piece: id, building: undefined });
-              }}
-              onSelectPort={(piece, index) => store.select({ target: { piece, index } })}
-              onSelectBuilding={(id) => store.select({ building: id, piece: undefined })}
-              onDragStart={() => store.beginGesture()}
-              onDrag={(piece, dx, dy) => store.moveRoot(store.rootOf(piece), dx, dy, false)}
-              onDragBuilding={(id, dx, dy) => store.moveBuilding(id, dx, dy)}
-              {...(building ? { onDropElement: dropElement } : {})}
-            />
-          </aside>
-        )}
+        <aside ref={planPanel} className="panel panel-plan" data-tree={Object.values(state.treeOpen).some(Boolean) ? "open" : "folded"}>
+          <header className="section-head">
+            <h3>{tr("plan.caption")}</h3>
+            <span className="muted small">{tr("plan.hint")}</span>
+          </header>
+          <PlanView
+            project={project}
+            analysis={analysis}
+            selection={selection}
+            target={target ? { piece: target.piece, index: target.index } : undefined}
+            interactive={step === "track"}
+            highlightElement={step === "elements" ? selection.element : undefined}
+            onSelectPiece={selectPiece}
+            onSelectPort={(piece, index) => store.select({ target: { piece, index } })}
+            onSelectBuilding={selectBuilding}
+            onDragStart={() => store.beginGesture()}
+            onDrag={(piece, dx, dy) => store.moveRoot(store.rootOf(piece), dx, dy, false)}
+            onDragBuilding={(id, dx, dy) => store.moveBuilding(id, dx, dy)}
+            {...(building ? { onDropElement: dropElement } : {})}
+          />
+          <StructureTree
+            project={project}
+            selection={selection}
+            open={state.treeOpen}
+            onToggle={(group) => store.setTreeGroup(group, !state.treeOpen[group])}
+            editable={step === "track"}
+            onSelectPiece={selectPiece}
+            onSelectBuilding={selectBuilding}
+            onSelectCar={selectCar}
+          />
+        </aside>
 
         <div className="statusbar" aria-live="polite">
           {notice && <span className="toast">{notice}</span>}

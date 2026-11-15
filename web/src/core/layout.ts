@@ -16,7 +16,12 @@ export interface Piece {
   port: number;
   /** root pieces only: where they lie (mm, degrees) */
   at?: { x: number; y: number; rotation: number };
+  /** own colour "#RRGGBB"; absent: the colour of the element type */
+  color?: string;
 }
+
+/** The colour a piece is shown and printed in. */
+export const pieceColor = (piece: Piece, type: ElementType): string => piece.color ?? type.color;
 
 export interface Layout {
   pieces: Piece[];
@@ -301,12 +306,14 @@ export function nextPort(analysis: Analysis, piece: string): WorldPort | undefin
 export interface PartCount {
   type: string;
   variant: Variant;
+  /** pieces of one type in different colours are different parts */
+  color: string;
   count: number;
 }
 
 /**
  * How many of each part to print. With double-sided track a mirrored piece is the same part turned
- * over, so it counts as the plain one.
+ * over, so it counts as the plain one. Pieces of one type in different colours are counted apart.
  */
 export function partsList(layout: Layout, types: readonly ElementType[], doubleSided: boolean): PartCount[] {
   const typeOf = new Map(types.map((t) => [t.id, t]));
@@ -315,8 +322,9 @@ export function partsList(layout: Layout, types: readonly ElementType[], doubleS
     const type = typeOf.get(piece.type);
     if (!type) continue;
     const variant = printVariant(type, piece.variant, doubleSided);
-    const key = `${type.id}|${variant.mirror}|${variant.swap}`;
-    const entry = counts.get(key) ?? { type: type.id, variant, count: 0 };
+    const color = pieceColor(piece, type);
+    const key = `${type.id}|${variant.mirror}|${variant.swap}|${color.toUpperCase()}`;
+    const entry = counts.get(key) ?? { type: type.id, variant, color, count: 0 };
     entry.count += 1;
     counts.set(key, entry);
   }

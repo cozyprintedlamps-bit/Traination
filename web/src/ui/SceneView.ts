@@ -38,7 +38,13 @@ export interface ScenePart {
 }
 
 const CREASE_ANGLE = (35 * Math.PI) / 180;
+/** However much a panel covers, this much of the view (pixels) stays free for the parts. */
+const MIN_FREE_WIDTH = 120;
 const FIELD_OF_VIEW = 35;
+
+/** Direction from the parts to the camera (X, Y, Z): from the front right, above. */
+export type ViewDirection = readonly [number, number, number];
+export const VIEW_DIRECTION: ViewDirection = [0.55, -0.85, 0.75];
 
 export class SceneView {
   private readonly renderer: WebGLRenderer;
@@ -60,9 +66,9 @@ export class SceneView {
   onRender: (() => void) | undefined;
 
   /** Throws if WebGL is not available. */
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, options: { pixelRatio?: number } = {}) {
     this.renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(options.pixelRatio ?? Math.min(window.devicePixelRatio || 1, 2));
     this.camera.up.set(0, 0, 1);
     this.scene.add(this.camera);
     this.camera.add(new AmbientLight(0xffffff, 0.55));
@@ -109,8 +115,13 @@ export class SceneView {
     this.requestRender();
   }
 
+  /** The strip on the right the parts keep out of: what a panel covers, but never more than leaves a free strip. */
+  private coveredWidth(): number {
+    return Math.min(this.insetRight, Math.max(this.width - MIN_FREE_WIDTH, 0));
+  }
+
   private applyOffset(): void {
-    const inset = Math.min(this.insetRight, this.width * 0.5);
+    const inset = this.coveredWidth();
     // shift the picture to the left by half the covered strip, so that its middle is the free middle
     if (inset > 0) this.camera.setViewOffset(this.width, this.height, inset / 2, 0, this.width, this.height);
     else this.camera.clearViewOffset();
@@ -145,8 +156,18 @@ export class SceneView {
     this.requestRender();
   }
 
+  setGridVisible(visible: boolean): void {
+    this.grid.visible = visible;
+  }
+
+  /** A picture of what the view shows now (PNG with a see-through background), drawn at once. */
+  snapshot(): string {
+    this.renderer.render(this.scene, this.camera);
+    return this.renderer.domElement.toDataURL("image/png");
+  }
+
   /** Look at all parts from an angle above. */
-  fit(): void {
+  fit(direction: ViewDirection = VIEW_DIRECTION): void {
     if (this.meshes.length === 0) return;
     this.autoFit = true;
     const lo = new Vector3(Infinity, Infinity, Infinity);
@@ -163,10 +184,10 @@ export class SceneView {
     const radius = Math.max(hi.clone().sub(lo).length() / 2, 20);
     // the sphere around the parts fits the narrower of the two angles of view
     const vertical = (FIELD_OF_VIEW * Math.PI) / 180;
-    const free = Math.max(this.width - Math.min(this.insetRight, this.width * 0.5), 1) / this.height;
+    const free = Math.max(this.width - this.coveredWidth(), 1) / this.height;
     const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * free);
     const distance = (radius / Math.sin(Math.min(vertical, horizontal) / 2)) * 0.92;
-    const dir = new Vector3(0.55, -0.85, 0.75).normalize();
+    const dir = new Vector3(...direction).normalize();
     this.controls.target.copy(center);
     this.camera.position.copy(center.clone().add(dir.multiplyScalar(distance)));
     this.camera.near = Math.max(distance * 0.01, 0.5);
