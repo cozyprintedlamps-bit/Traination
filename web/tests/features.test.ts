@@ -3,9 +3,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { Store } from "../src/app/store";
 import { closeGap, pairToClose } from "../src/core/autoclose";
 import { analyze, removePiece } from "../src/core/layout";
-import { deserialize, newProject, serialize, templateLayout } from "../src/core/project";
+import { LEDGE_ROWS_MAX, STUD_DEFAULT_LOWERED, STUD_DEFAULT_ROWS } from "../src/presets/bricks";
+import { buildTemplate, deserialize, newProject, serialize, templateLayout, withStandardElements } from "../src/core/project";
 import { supports, supportParts } from "../src/core/supports";
-import { standardElements } from "../src/core/track";
+import { NO_LEDGE, hasStuds, ledgeSides, makeElement, standardElements } from "../src/core/track";
 import { CATEGORIES, KINDS_BY_CATEGORY, VEHICLE_KINDS, categoryOf } from "../src/core/vehicle";
 import { createEngine } from "../src/geometry/engine";
 import type { Engine } from "../src/geometry/engine";
@@ -111,6 +112,66 @@ describe("vehicles and buildings", () => {
     store.moveVehicleTo(ids[0]!, 5);
     const order = store.getState().project.vehicles.map((v) => v.id);
     expect(order[order.length - 1]).toBe(ids[0]);
+  });
+
+  it("only plain pieces are standard: studs are set in the configurator", () => {
+    const p = newProject("oval");
+    expect(p.elements.some(hasStuds)).toBe(false);
+    expect(standardElements().some(hasStuds)).toBe(false);
+    // the ready-made tracks without studs leave the pieces plain
+    for (const id of ["oval_large", "dogbone", "mountain"] as const) expect(buildTemplate(id, withStandardElements(p.elements)).elements.some(hasStuds), id).toBe(false);
+    // a ledge that is switched on starts with 5 rows, stepped down
+    expect(STUD_DEFAULT_ROWS).toBe(5);
+    expect(STUD_DEFAULT_LOWERED).toBe(true);
+  });
+
+  it("an old project loses the studded standard pieces: unused ones go, used ones move onto the plain piece", () => {
+    const p = newProject("oval");
+    const one = (kind: "lego" | "duplo") => ({ kind, rows: 1 });
+    const legoOld = makeElement("straight", { id: "straight-216-lego", length: 216, studs: { left: one("lego"), right: one("lego") } });
+    const duploOld = makeElement("straight", { id: "straight-216-duplo", length: 216, studs: { left: one("duplo"), right: { ...NO_LEDGE } } });
+    const old = { ...p, elements: [...p.elements, legoOld, duploOld] };
+    const ids = (project: typeof p) => project.elements.map((e) => e.id);
+    const piece = (type: string, id = "x") => ({ id, type, variant: { mirror: false, swap: false }, port: 0 });
+    // unused: both go (even a changed one)
+    expect(ids(deserialize(serialize(old)))).toEqual(ids(p));
+    const changed = { ...old, elements: [...p.elements, { ...legoOld, studs: { left: { kind: "lego" as const, rows: 3 }, right: one("lego") }, color: "#123456" }, duploOld] };
+    expect(ids(deserialize(serialize(changed)))).toEqual(ids(p));
+    // used: the piece moves to the plain 216 mm straight, which takes over the studs; the type goes
+    const used = { ...old, layout: { pieces: [...old.layout.pieces, piece("straight-216-lego")] } };
+    const loaded = deserialize(serialize(used));
+    expect(ids(loaded)).toEqual(ids(p));
+    expect(loaded.layout.pieces.at(-1)?.type).toBe("straight-216");
+    expect(ledgeSides(loaded.elements.find((e) => e.id === "straight-216")!)).toMatchObject({ left: { kind: "lego", rows: 1 }, right: { kind: "lego", rows: 1 } });
+    // an own colour of the old type stays on the piece
+    const coloured = { ...used, elements: [...p.elements, { ...legoOld, color: "#123456" }, duploOld] };
+    expect(deserialize(serialize(coloured)).layout.pieces.at(-1)?.color).toBe("#123456");
+    // both kinds used: the first takes the plain piece, the second stays (one piece cannot have two kinds of studs)
+    const both = { ...old, layout: { pieces: [...old.layout.pieces, piece("straight-216-lego", "a"), piece("straight-216-duplo", "b")] } };
+    const two = deserialize(serialize(both));
+    expect(ids(two)).toContain("straight-216-duplo");
+    expect(ids(two)).not.toContain("straight-216-lego");
+    // the plain piece has another length in this project: nothing is merged
+    const other = { ...used, elements: [...p.elements.map((e) => (e.id === "straight-216" ? { ...e, length: 200 } : e)), legoOld, duploOld] };
+    expect(ids(deserialize(serialize(other)))).toContain("straight-216-lego");
+  });
+
+  it("a stepped-down stud ledge is saved; rows outside the limits and old formats come back sane", () => {
+    const p = newProject("oval");
+    const ledge = { ...p, elements: p.elements.map((e, i) => (i === 0 ? { ...e, studs: { left: { kind: "lego" as const, rows: 12, lowered: true }, right: { kind: "duplo" as const, rows: 2 } } } : e)) };
+    expect(deserialize(serialize(ledge)).elements[0]?.studs).toEqual({ left: { kind: "lego", rows: 12, lowered: true }, right: { kind: "duplo", rows: 2 } });
+    const wild = JSON.parse(serialize(ledge));
+    wild.elements[0].studs.left.rows = 100000;
+    wild.elements[1].studs = { left: { kind: "lego", rows: -3, lowered: "yes" }, right: { kind: "duplo", rows: 4, lowered: true } };
+    const tame = deserialize(JSON.stringify(wild));
+    expect(tame.elements[0]?.studs.left.rows).toBe(LEDGE_ROWS_MAX.lego);
+    expect(tame.elements[1]?.studs).toEqual({ left: { kind: "lego", rows: 1 }, right: { kind: "duplo", rows: 4, lowered: true } });
+    // a project of the version before the ledges had sides: one kind, a side, rows, and one flag for stepping down
+    const before = JSON.parse(serialize(p));
+    Object.assign(before.elements[0], { studs: "lego", studSide: "left", studRows: 3, studLowered: true });
+    const upgraded = deserialize(JSON.stringify(before)).elements[0]!;
+    expect(upgraded.studs).toEqual({ left: { kind: "lego", rows: 3, lowered: true }, right: { kind: "none", rows: 1 } });
+    expect("studSide" in upgraded || "studRows" in upgraded || "studLowered" in upgraded).toBe(false);
   });
 
   it("buildings are saved with the project, old files get colour slots", () => {

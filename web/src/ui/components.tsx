@@ -121,6 +121,34 @@ export function Toggle({ label, checked, onChange, hint }: { label: string; chec
   );
 }
 
+/** The Bambu Lab filament colours to choose from; `value` is marked. */
+export function ColorPalette({ value, onPick, children }: { value: string; onPick: (hex: string) => void; children?: ReactNode }) {
+  const current = bambuColor(value);
+  return (
+    <div className="palette">
+      {(["PLA Basic", "PLA Matte"] as const).map((type) => (
+        <div key={type}>
+          <div className="palette-title">{tr(type === "PLA Basic" ? "color.basic" : "color.matte")}</div>
+          <div className="palette-grid">
+            {BAMBU_COLORS.filter((c) => c.type === type).map((c) => (
+              <button
+                key={c.code}
+                type="button"
+                className={`swatch pick${c.hex.toUpperCase() === value.toUpperCase() && current?.type === type ? " selected" : ""}`}
+                style={{ background: c.hex }}
+                title={language() === "en" ? c.en : c.de}
+                aria-label={language() === "en" ? c.en : c.de}
+                onClick={() => onPick(c.hex)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      {children}
+    </div>
+  );
+}
+
 /** A colour from the Bambu Lab filaments; the swatch opens the palette. */
 export function ColorPicker({ label, value, onChange }: { label: string; value: string; onChange: (hex: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -136,28 +164,13 @@ export function ColorPicker({ label, value, onChange }: { label: string; value: 
         </span>
       </button>
       {open && (
-        <div className="palette">
-          {(["PLA Basic", "PLA Matte"] as const).map((type) => (
-            <div key={type}>
-              <div className="palette-title">{tr(type === "PLA Basic" ? "color.basic" : "color.matte")}</div>
-              <div className="palette-grid">
-                {BAMBU_COLORS.filter((c) => c.type === type).map((c) => (
-                  <button
-                    key={c.code}
-                    type="button"
-                    className={`swatch pick${c.hex.toUpperCase() === value.toUpperCase() && current?.type === type ? " selected" : ""}`}
-                    style={{ background: c.hex }}
-                    title={language() === "en" ? c.en : c.de}
-                    onClick={() => {
-                      onChange(c.hex);
-                      setOpen(false);
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <ColorPalette
+          value={value}
+          onPick={(hex) => {
+            onChange(hex);
+            setOpen(false);
+          }}
+        />
       )}
     </div>
   );

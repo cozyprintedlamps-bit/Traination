@@ -85,8 +85,8 @@ export function ExportPage() {
           {parts.map((p) => {
             const t = typeOf.get(p.type);
             return t ? (
-              <li key={`${p.type}${p.variant.mirror}${p.variant.swap}`}>
-                <span className="swatch small" style={{ background: t.color }} />
+              <li key={`${p.type}${p.variant.mirror}${p.variant.swap}${p.color}`}>
+                <span className="swatch small" style={{ background: p.color }} />
                 <span>{elementName(t, p.variant)}</span>
                 <span className="count">{tr("export.count", { n: p.count })}</span>
               </li>

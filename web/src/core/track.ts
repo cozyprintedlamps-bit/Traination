@@ -46,6 +46,8 @@ export interface StudLedge {
   kind: StudKind;
   /** rows of studs */
   rows: number;
+  /** stepped down: the first row beside the track is as high as the track, the rows behind it stand on a thin plate */
+  lowered?: boolean;
 }
 
 /** The ledges on the left and the right of the direction of travel (from port 0). */
@@ -144,7 +146,8 @@ export const takesLever = (kind: ElementKind) => kind === "switch" || kind === "
 function cleanLedge(ledge: StudLedge | undefined): StudLedge {
   const kind = ledge?.kind === "lego" || ledge?.kind === "duplo" ? ledge.kind : "none";
   const rows = Math.min(Math.max(1, Math.round(ledge?.rows ?? 1)), maxRows(kind));
-  return { kind, rows };
+  // there is nothing to step down on one row
+  return { kind, rows, ...(ledge?.lowered === true && kind !== "none" && rows > 1 ? { lowered: true } : {}) };
 }
 
 /** The ledges on the left and the right of the track as used (mirroring swaps the sides). */
@@ -199,8 +202,6 @@ export function standardElements(): ElementType[] {
     makeElement("buffer", { id: "buffer" }),
     makeElement("adapter", { id: "adapter-mm", adapter: "male" }),
     makeElement("adapter", { id: "adapter-ff", adapter: "female" }),
-    makeElement("straight", { id: "straight-216-lego", length: 216, studs: { left: { kind: "lego", rows: 1 }, right: { kind: "lego", rows: 1 } } }),
-    makeElement("straight", { id: "straight-216-duplo", length: 216, studs: { left: { kind: "duplo", rows: 1 }, right: { ...NO_LEDGE } } }),
   ];
 }
 

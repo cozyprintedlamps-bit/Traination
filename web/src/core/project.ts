@@ -1,11 +1,12 @@
 // A whole Traination project: element types, the track plan, the train and the settings. Saved
 // as a `.trproj` file (JSON with a schema version).
 import { BRIDGE_DECK, BRIDGE_HEIGHT, TRACK_HEIGHT, TRACK_WIDTH } from "../presets/gauge";
+import { maxRows } from "../presets/bricks";
 import { DEFAULT_CONNECTOR_FIT, DEFAULT_PRINTER } from "../presets/print";
 import { closeGap } from "./autoclose";
 import { analyze, attach, nextPort, rotate } from "./layout";
 import type { Layout, Piece, WorldPort } from "./layout";
-import { PLAIN, ELEMENT_KINDS, NO_LEDGE, elementShape, ledges, makeElement, newId, noStuds, pathLength, pointAt, standardElements } from "./track";
+import { PLAIN, ELEMENT_KINDS, NO_LEDGE, elementShape, hasStuds, ledges, makeElement, newId, noStuds, pathLength, pointAt, standardElements } from "./track";
 import type { ElementType, StudSides } from "./track";
 import { BUILDING_KINDS, OVER_TRACK, TUNNEL_CLEARANCE, makeBuilding } from "./buildings";
 import type { Building, BuildingKind } from "./buildings";
@@ -18,6 +19,7 @@ import type { Fits, Vehicle, VehicleColors, VehicleKind } from "./vehicle";
  */
 export const SCHEMA_VERSION = 3;
 export const FILE_EXTENSION = ".trproj";
+const PIECE_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 export interface Settings {
   /** grooves on both faces: a curve turned over is the other hand */
@@ -170,6 +172,40 @@ export function templateTypes(): ElementType[] {
     // the heart: two of these on each side bring the tip exactly below the notch (2 × 182 = 2 × R)
     makeElement("straight", { id: "straight-182", length: 182 }),
   ];
+}
+
+/**
+ * Element types with studs that the first versions had among the standard ones. Studs are set in the
+ * configurator now, on the plain piece (`base`). On load such a type goes: when no piece uses it, it
+ * is dropped; when pieces use it, they move to the plain piece, which takes over the studs (if it has
+ * none yet and has the same length, else the type stays).
+ */
+const LEGACY_STUD_ELEMENTS: readonly { id: string; base: string }[] = [
+  { id: "straight-216-lego", base: "straight-216" },
+  { id: "straight-216-duplo", base: "straight-216" },
+];
+
+function mergeLegacyStudElements<P extends { type: string; color?: string }>(elements: ElementType[], pieces: P[]): { elements: ElementType[]; pieces: P[] } {
+  let types = elements;
+  let placed = pieces;
+  for (const { id, base: baseId } of LEGACY_STUD_ELEMENTS) {
+    const legacy = types.find((e) => e.id === id);
+    if (!legacy) continue;
+    if (placed.some((p) => p.type === id)) {
+      const base = types.find((e) => e.id === baseId);
+      if (!base || hasStuds(base) || base.kind !== legacy.kind || base.length !== legacy.length) continue;
+      types = types.map((e) => (e.id === baseId ? { ...e, studs: structuredClone(legacy.studs) } : e));
+      placed = placed.map((p) => (p.type === id ? { ...p, type: baseId, ...(p.color === undefined && legacy.color !== base.color ? { color: legacy.color } : {}) } : p));
+    }
+    types = types.filter((e) => e.id !== id);
+  }
+  return { elements: types, pieces: placed };
+}
+
+/** The given element types plus the standard ones a template may need that are missing (e.g. removed by the user). */
+export function withStandardElements(elements: ElementType[]): ElementType[] {
+  const have = new Set(elements.map((e) => e.id));
+  return [...elements, ...newProject("empty").elements.filter((e) => !have.has(e.id))];
 }
 
 export interface TemplateResult {
@@ -453,20 +489,26 @@ export function serialize(project: Project): string {
 
 export class ProjectFileError extends Error {}
 
-/** Stud ledges of a stored element: schema 3 has { left, right }; schema 2 had one kind, a side and rows. */
+/**
+ * Stud ledges of a stored element: schema 3 has { left, right } (each with kind, rows and maybe
+ * `lowered`); schema 2 had one kind, a side and rows. Rows are kept within the limits, so that a
+ * damaged file cannot hang the engine.
+ */
 function readStuds(e: unknown): StudSides {
-  const raw = e as { studs?: unknown; studSide?: unknown; studRows?: unknown };
-  const ledge = (v: unknown) => {
-    const l = v as { kind?: unknown; rows?: unknown } | undefined;
+  const raw = e as { studs?: unknown; studSide?: unknown; studRows?: unknown; studLowered?: unknown };
+  const ledge = (v: unknown, stepped = false): StudSides["left"] => {
+    const l = v as { kind?: unknown; rows?: unknown; lowered?: unknown } | undefined;
     const kind = l?.kind === "lego" || l?.kind === "duplo" ? l.kind : "none";
-    return { kind, rows: typeof l?.rows === "number" ? l.rows : 1 } as StudSides["left"];
+    const rows = typeof l?.rows === "number" && Number.isFinite(l.rows) ? Math.min(Math.max(1, Math.round(l.rows)), maxRows(kind)) : 1;
+    return { kind, rows, ...((l?.lowered === true || stepped) && kind !== "none" && rows > 1 ? { lowered: true } : {}) };
   };
   if (typeof raw.studs === "object" && raw.studs !== null) {
     const s = raw.studs as { left?: unknown; right?: unknown };
     return { left: ledge(s.left), right: ledge(s.right) };
   }
   if (raw.studs === "lego" || raw.studs === "duplo") {
-    const one = { kind: raw.studs, rows: typeof raw.studRows === "number" ? raw.studRows : 1 } as StudSides["left"];
+    // a stepped-down ledge of the version in between had one flag for the element
+    const one = ledge({ kind: raw.studs, rows: raw.studRows }, raw.studLowered === true);
     const side = raw.studSide === "left" || raw.studSide === "right" ? raw.studSide : "both";
     return { left: side !== "right" ? one : { ...NO_LEDGE }, right: side !== "left" ? { ...one } : { ...NO_LEDGE } };
   }
@@ -491,9 +533,10 @@ export function deserialize(text: string): Project {
         .filter((e) => ELEMENT_KINDS.includes(e?.kind))
         .map((e) => {
           // schema 2 fields that schema 3 keeps in `studs`
-          const { studSide: _side, studRows: _rows, ...rest } = e as ElementType & { studSide?: unknown; studRows?: unknown };
+          const { studSide: _side, studRows: _rows, studLowered: _stepped, ...rest } = e as ElementType & { studSide?: unknown; studRows?: unknown; studLowered?: unknown };
           void _side;
           void _rows;
+          void _stepped;
           return { ...makeElement(e.kind), ...rest, studs: readStuds(e), lever: e.lever === true };
         })
     : base.elements;
@@ -527,11 +570,18 @@ export function deserialize(text: string): Project {
       })
     : [];
   const pieces = Array.isArray(raw.layout?.pieces) ? raw.layout.pieces.filter((p) => typeof p?.id === "string" && typeof p.type === "string") : [];
+  const merged = mergeLegacyStudElements(elements, pieces);
   return {
     schema: SCHEMA_VERSION,
     name: typeof raw.name === "string" ? raw.name : "",
-    elements,
-    layout: { pieces: pieces.map((p) => ({ ...p, variant: { ...PLAIN, ...p.variant }, port: p.port ?? 0 })) },
+    elements: merged.elements,
+    layout: {
+      pieces: merged.pieces.map((p) => {
+        // an own colour must be "#RRGGBB", else the piece has the colour of its type
+        const { color, ...rest } = p;
+        return { ...rest, ...(typeof color === "string" && PIECE_COLOR.test(color) ? { color } : {}), variant: { ...PLAIN, ...p.variant }, port: p.port ?? 0 };
+      }),
+    },
     vehicles,
     buildings,
     settings: { ...DEFAULT_SETTINGS, ...raw.settings, fits: { ...DEFAULT_FITS, ...raw.settings?.fits } },

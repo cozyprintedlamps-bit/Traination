@@ -1,7 +1,7 @@
 // The 3D view as a component: owns a canvas and a SceneView. Optional markers ("+" buttons at
 // points of the scene) follow the camera; dropped items land on the nearest marker or the bed.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DragEvent, ReactNode } from "react";
+import type { CSSProperties, DragEvent, ReactNode } from "react";
 import { SceneView } from "./SceneView";
 import type { ScenePart } from "./SceneView";
 import { tr } from "./i18n";
@@ -38,12 +38,14 @@ interface Props {
   children?: ReactNode;
   /** pixels on the right covered by a panel (the plan) */
   insetRight?: number;
+  /** tells this view from the main one (a page may have a second, small one) */
+  testId?: string;
 }
 
 /** A drop this close to a marker (pixels) goes to it. */
 const DROP_REACH = 110;
 
-export function Viewer3D({ parts, fitKey, busy, error, markers = [], onMarker, dropType, onDrop, children, insetRight = 0 }: Props) {
+export function Viewer3D({ parts, fitKey, busy, error, markers = [], onMarker, dropType, onDrop, children, insetRight = 0, testId = "viewer" }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const view = useRef<SceneView | null>(null);
@@ -148,9 +150,11 @@ export function Viewer3D({ parts, fitKey, busy, error, markers = [], onMarker, d
     <div
       ref={host}
       className={`viewer${hover ? " dropping" : ""}`}
-      data-testid="viewer"
+      data-testid={testId}
       data-state={busy ? "busy" : "idle"}
       data-parts={parts.length}
+      data-see-through={parts.filter((p) => p.opacity !== undefined && p.opacity < 1).length}
+      style={{ "--inset-right": `${insetRight}px` } as CSSProperties}
       onDragOver={onDragOver}
       onDragLeave={() => setHover(undefined)}
       onDrop={onDropHere}

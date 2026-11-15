@@ -43,9 +43,9 @@ export async function trackItems(project: Project, source: MeshSource, names: Na
     const type = typeOf.get(entry.type);
     if (!type) continue;
     const part = await source.printElement(type, entry.variant, trackOptions(project));
-    items.push({ name: names.element(type, entry.variant), color: type.color, part, count: entry.count });
+    items.push({ name: names.element(type, entry.variant), color: entry.color, part, count: entry.count });
     // a switch with a lever: its slider is a print part of its own
-    if (hasLever(type)) items.push({ name: `${names.element(type, entry.variant)} – ${names.part("slider")}`, color: type.color, part: await source.slider(type, entry.variant), count: entry.count });
+    if (hasLever(type)) items.push({ name: `${names.element(type, entry.variant)} – ${names.part("slider")}`, color: entry.color, part: await source.slider(type, entry.variant), count: entry.count });
   }
   const color = project.elements[0]?.color ?? "#8E9089";
   for (const s of supportParts(supports(project.layout, project.elements, analyze(project.layout, project.elements)))) {

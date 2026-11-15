@@ -49,10 +49,10 @@ describe("stud ledges on each side", () => {
     expect(part.max[2]).toBeCloseTo(TRACK_HEIGHT + DUPLO.height, 2);
   });
 
-  it("takes many rows, up to what still fits a 256 mm bed", () => {
+  it("takes many rows, up to 20 for both kinds (the elements page warns when that is wider than the bed)", () => {
     for (const kind of ["lego", "duplo"] as const) {
       const rows = maxRows(kind);
-      expect(TRACK_WIDTH + 2 * ledgeWidth(kind, rows)).toBeLessThanOrEqual(256 - 12);
+      expect(rows).toBe(20);
       const wide = makeElement("straight", { length: 108, studs: { left: { kind, rows }, right: { kind, rows } } });
       expect(engine.element(wide, PLAIN, options).status).toBe("NoError");
       // more than the most is cut back

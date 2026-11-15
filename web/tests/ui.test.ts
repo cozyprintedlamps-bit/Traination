@@ -44,6 +44,39 @@ describe("texts", () => {
 });
 
 describe("store", () => {
+  it("starts on the templates tab with all categories of the structure tree closed", () => {
+    const state = new Store(newProject("oval")).getState();
+    expect(state.trackTab).toBe("templates");
+    expect(state.treeOpen).toEqual({ track: false, buildings: false, trains: false });
+  });
+
+  it("opens and closes the categories of the structure tree one by one", () => {
+    const store = new Store(newProject("oval"));
+    store.setTreeGroup("trains", true);
+    expect(store.getState().treeOpen).toEqual({ track: false, buildings: false, trains: true });
+    store.setTreeGroup("track", true);
+    store.setTreeGroup("trains", false);
+    expect(store.getState().treeOpen).toEqual({ track: true, buildings: false, trains: false });
+  });
+
+  it("marks one thing at a time: a vehicle, a piece or a building", () => {
+    const store = new Store(newProject("oval"));
+    const car = store.getState().project.vehicles[1]!.id;
+    const piece = store.getState().project.layout.pieces[0]!.id;
+    store.select({ car, vehicle: car });
+    expect(store.getState().selection).toMatchObject({ car, vehicle: car });
+    store.select({ piece });
+    expect(store.getState().selection.car).toBeUndefined();
+    expect(store.getState().selection.piece).toBe(piece);
+    store.select({ car, vehicle: car });
+    expect(store.getState().selection.piece).toBeUndefined();
+    // the vehicle goes: the mark goes with it
+    store.removeVehicle(car);
+    expect(store.getState().selection.car).toBeUndefined();
+    store.undo();
+    expect(store.getState().selection.vehicle).toBeDefined();
+  });
+
   it("adds pieces to the free end, undoes and redoes", () => {
     const store = new Store(newProject("empty"));
     store.addPiece("straight-144");

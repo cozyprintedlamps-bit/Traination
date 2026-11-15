@@ -28,10 +28,14 @@ export type StudKind = "none" | "lego" | "duplo";
 export const STUD_KINDS: readonly StudKind[] = ["none", "lego", "duplo"];
 
 /**
- * Rows of studs on one ledge: as many as the user wants, up to about 96 mm of ledge on each side
- * (track and both ledges then still fit a 256 mm bed; the elements page warns for smaller beds).
+ * Rows of studs on one ledge: up to 20, for both kinds. A wide ledge may not fit the print bed; the
+ * elements page warns for that.
  */
-export const LEDGE_ROWS_MAX: Readonly<Record<Exclude<StudKind, "none">, number>> = { lego: 12, duplo: 6 };
+export const LEDGE_ROWS_MAX: Readonly<Record<Exclude<StudKind, "none">, number>> = { lego: 20, duplo: 20 };
+/** A ledge that is switched on starts with this many rows ... */
+export const STUD_DEFAULT_ROWS = 5;
+/** ... and stepped down: the first row stays as high as the track, the rows behind it stand on a plate of the system (`StudSystem.plate`). */
+export const STUD_DEFAULT_LOWERED = true;
 
 export function studSystem(kind: StudKind): StudSystem | undefined {
   return kind === "lego" ? LEGO : kind === "duplo" ? DUPLO : undefined;

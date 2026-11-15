@@ -3,7 +3,7 @@
 Web-Tool zum Planen, Konfigurieren und Exportieren 3D-druckbarer **Holzbahn-Teile**: Schienen-Elemente und Züge, kompatibel mit den gängigen Holzeisenbahnen (Brio, IKEA Lillabo und ähnliche).
 Export als **3MF** für Bambu Studio / Orca Slicer. Aufbau und Konventionen folgen der Web-App von TactileManufactory (Repo `../TactileFactory`, siehe dessen `CLAUDE.md` und `web/`).
 
-> Status (14.11.2026): Erste Version (ADR 0001), Ausbau (ADR 0002) und Streckenbau (ADR 0003) sind in `main`. Demo-Strecken, Tunnel, Stellweichen und die Druckbarkeits-Prüfung liegen auf Branch `feature/tunnel-und-weichen` (ADR 0004). Der Wizard hat sechs Schritte:
+> Status (15.11.2026): Alles bis ADR 0010 ist in `main`: Erste Version (ADR 0001), Ausbau (ADR 0002), Streckenbau (ADR 0003), Demo-Strecken, Tunnel, Stellweichen und Druckbarkeits-Prüfung (ADR 0004), Plan und Strukturbaum (ADR 0005), Reiter mit Vorschaubildern (ADR 0006), Fenster neben der Seite (ADR 0007, 0009), Noppenleisten (ADR 0008) und der Plan in jedem Schritt (ADR 0010). Der Wizard hat sechs Schritte:
 >
 > 1. **Strecke:**
 >    - 14 Demo-Strecken (vorgefertigt), darunter Herz, Hundeknochen, Kopfbahnhof und Bergbahn mit Tunnel; dazu „Eigene Strecke erstellen“.
@@ -12,17 +12,24 @@ Export als **3MF** für Bambu Studio / Orca Slicer. Aufbau und Konventionen folg
 >    - „Strecke leeren“.
 >    - Automatische Stützen.
 >    - Gebäude in 5 Kategorien: Bahnhöfe (4), Bahnsteige (3), Tunnel (3), Bahnanlagen (4), Stadt & Noppen (3). Kein Bahnhof und kein Signal mehr von selbst.
->    - Der Plan ist eine kleine Übersichtskarte, die immer die ganze Strecke zeigt.
-> 2. **Schienenkonfigurator:** 9 Arten in Kategorien, Noppenleisten je Seite (LEGO oder DUPLO, beliebig viele Reihen), Weichen mit Stellhebel, Schwellen-Optik.
+>    - Der Plan liegt in einem Feld über die ganze rechte Seite (so breit wie das Seitenfeld links) und zeigt immer die ganze Strecke und den Zug. Darunter steht der Strukturbaum mit den drei Kategorien Bauteile, Gebäude und Züge (die Kopfzeilen sind immer zu sehen, beim Start sind alle eingeklappt): Farbfeld links, Mülleimer rechts, ein Klick markiert das Teil im Plan blau.
+>    - Die Seite hat drei Reiter mit Vorschaubildern: Vorlagen (die Demo-Strecken und „Eigene Strecke erstellen“), Schienen (nach Kategorien) und Gebäude (nach Kategorien).
+> 2. **Schienen Konfigurator** (Schritt „Elemente“ im Code, `step.elements`; früher „Schienenkonfigurator“):
+>    - 9 Arten in Kategorien, Noppenleisten je Seite (LEGO oder DUPLO, 1 bis 20 Reihen, ein Haken „abgesetzt“ setzt die Reihen ab Reihe 2 auf eine dünne Platte; vorgegeben sind 5 Reihen, abgesetzt), Weichen mit Stellhebel und Schwellen-Optik.
+>    - Links steht die Liste der Standardelemente (nur schlichte Stücke, Noppen stellt man im Konfigurator ein), rechts daneben öffnet sich ein gleich großes Fenster „Elemente konfigurieren“ (`ElementDetail`): oben das 3D-Modell des Elements zum Drehen, darunter seine Einstellungen und „Schienen allgemein“.
+>    - Die große 3D-Ansicht dahinter zeigt die ganze Strecke; die Stücke des gewählten Elements sind heller.
 > 3. **Züge:**
 >    - 4 Kategorien mit 21 Bauarten, darunter die CyberBrick-E-Lok mit Schneckenantrieb. Mit vielen gedruckten Details.
 >    - Zug-Vorlagen.
 >    - Fahrzeuge werden per Drag & Drop in den Zug gezogen; Ansicht „Ganzer Zug“.
-> 4. **Design:** Muster, Name/Nummer, Gesicht, Lampen, Puffer, Schienenräumer; 7 Farbbereiche; Teile getrennt drucken und stecken oder mehrfarbig in einem Teil.
+>    - Rechts neben der Seite öffnet sich ein Fenster mit dem 3D-Modell des Zuges (durchsichtige Schienen) und darunter der Zugliste; die große 3D-Ansicht zeigt dahinter die unveränderte Strecke.
+>    - Gestaltung des gewählten Fahrzeugs: Fenster, Dach, Höhe, Muster, Name/Nummer, Gesicht, Lampen, Puffer, Schienenräumer (`VehicleLook` in `VehiclesPage.tsx`).
+> 4. **Design:** Rechts dasselbe Fenster wie bei „Züge“: 3D-Modell und Zugliste, ein Klick wählt das Fahrzeug. 7 Farbbereiche des gewählten Fahrzeugs, Teile getrennt drucken und stecken oder mehrfarbig in einem Teil; Farben von Schienen und Gebäuden.
 > 5. **Übersicht:** Kennzahlen und Filament je Farbe (geschätzt aus Wänden, Haut und Füllung).
 > 6. **Export:** 3MF für Strecke mit Stützen, für Züge und für Gebäude.
 >
-> 268 Unit-Tests und 8 Browser-Tests. Die Unit-Tests prüfen jedes Druckteil auf Überhang (`geometry/printability.ts`).
+> 282 Unit-Tests und 13 Browser-Tests. Die Unit-Tests prüfen jedes Druckteil auf Überhang (`geometry/printability.ts`).
+> In den Schritten „Züge“ und „Design“ sind die Schienen im Zugmodell des rechten Fensters durchsichtig.
 >
 > **Noch nicht geprüft:**
 > - Maße an echten Schienen und CyberBrick-Teilen.
@@ -50,14 +57,14 @@ Export als **3MF** für Bambu Studio / Orca Slicer. Aufbau und Konventionen folg
 - **Passstück**: Gerade (Passgerade) oder Kurve (Passkurve) in genau dem Maß, das „Strecke schließen“ für eine Lücke berechnet.
 - **Schwelle**: Steg zwischen den Rillen; dazwischen ist das Gleis offen (Schwellen-Optik).
 - **Stütze**: Pfeiler unter erhöhter flacher Strecke, automatisch an Stößen und unter langen Stücken.
-- **Noppenleiste**: Leiste neben dem Gleis mit LEGO- oder DUPLO-kompatiblen Noppen, je Seite eigene Art und Reihenzahl.
+- **Noppenleiste**: Leiste neben dem Gleis mit LEGO- oder DUPLO-kompatiblen Noppen, je Seite eigene Art und Reihenzahl (1 bis 20). „Abgesetzt“: Die erste Reihe bleibt so hoch wie das Gleis, die Reihen dahinter stehen auf einer dünnen Platte (LEGO 3,2 mm, DUPLO 4,8 mm, spart Filament).
 - **Demo-Strecke**: vorgefertigte Strecke (Vorlage). Gebäude, die zu ihr gehören, tragen `fromTemplate` und gehen mit, wenn man eine andere wählt.
 - **Stellweiche**: Weiche mit **Stellschieber**. Seine **Zunge** füllt an der Weichenspitze den Teil der Rille, den nur die andere Route nutzt. Der Griff schaut seitlich heraus.
 - **Tunnel**: Haube über der Schiene, mit 45°-spitzer Öffnung (`TUNNEL_BORE`). Auch Portal, Lokschuppen und Halle stehen über dem Gleis (`OVER_TRACK`).
 - **Überhang**: Fläche eines Druckteils, die mehr als 45° (oder als eine kurze Brücke) über die Schicht darunter hinausragt und Stützmaterial bräuchte.
 
 ## Fachregeln (Entwurf)
-1. **Wizard-Reihenfolge**: Strecke → Schienenkonfigurator → Züge → Design/Farben → Übersicht → Export. Die 3D-Vorschau begleitet jeden Schritt, der Plan die Schritte Strecke, Schienenkonfigurator, Übersicht und Export.
+1. **Wizard-Reihenfolge**: Strecke → Schienen Konfigurator → Züge → Design/Farben → Übersicht → Export. Die 3D-Vorschau begleitet jeden Schritt, der Plan mit dem Strukturbaum steht in jedem Schritt rechts.
 2. **Spurweite**: Alle Maße der Schiene sind **benannte Konstanten** in `presets/` und für alle Elemente gleich. Rillenbreite, -tiefe und -abstand sind nicht frei einstellbar, damit die Kompatibilität bleibt. Einstellbar sind nur die **Passungen**.
 3. **Verbinder**: Jedes Ende hat Zapfen oder Buchse. Die Buchse ist um die einstellbare **Verbinder-Passung** größer als der Zapfen. Adapter-Elemente (Zapfen-Zapfen, Buchse-Buchse) lösen Richtungsprobleme im Layout.
 4. **Elemente** sind parametrisch: Gerade (Länge), Kurve (Radius, Winkel), Weiche (links/rechts/Y, Radius, optional mit Stellhebel), Kreuzung, Rampe (Höhe, Länge), Prellbock. Optional **beidseitig nutzbar** (Rillen oben und unten; nicht bei Stellweichen).
@@ -88,7 +95,7 @@ Richtwerte für Brio-kompatible Schienen. Vor dem ersten Testdruck mit dem Messs
 web/src/
   presets/    gauge.ts (Spurweite, Verbinder, Standardstücke, Stützen), vehicle.ts (Räder, Achsen, Kupplungen, Magnete), print.ts (Passungen, Drucker),
               bricks.ts (LEGO/DUPLO-Raster), cyberbrick.ts (Elektronik, Motor, Getriebe)
-  core/       track.ts (Elemente: Pfade + Anschlüsse, Varianten, Kategorien, Noppenleisten je Seite), layout.ts (Plan als Baum, Kreisschluss, Überlappung, Stückliste),
+  core/       track.ts (Elemente: Pfade + Anschlüsse, Varianten, Kategorien, Noppenleisten je Seite), layout.ts (Plan als Baum, Kreisschluss, Überlappung, Stückliste, eigene Farbe je Stück), structure.ts (Zeilen des Strukturbaums),
               lever.ts (Stellweiche: Lage von Zunge, Steg, Arm, Griff und Schlitz), autoclose.ts (Strecke schließen: Routen aus Bögen und Geraden, Passstücke), supports.ts (Stützen),
               buildings.ts (Gebäude in Kategorien, Tunnel-Öffnung, über dem Gleis), material.ts (Filament-Schätzung),
               vehicle.ts (Kategorien, Bauarten, Farben, Gestaltung, Maße, Prüfungen), project.ts (Projekt, Demo-Strecken und Zug-Vorlagen, Gebäude-Platzierung, .trproj Schema 3), route.ts (Zug auf der Strecke)
@@ -96,7 +103,7 @@ web/src/
               decor.ts + text.ts (Muster, Strichschrift, Gesicht), gears.ts (Schnecke, Schneckenrad), cyberbrick.ts, buildings.ts (Bahnhöfe, Bahnsteige, Tunnel, Platten …), printability.ts (Überhang-Prüfung), engine.ts
   export/     bambu3mf.ts (aus TactileManufactory), plates.ts (Druckbetten, Dateien à 4 Platten), printItems.ts (Strecke + Stützen, Fahrzeuge, Gebäude)
   app/        store.ts (Zustand, Rückgängig, Autosave, Gebäude, Strecke schließen, Drag & Drop), engine.worker.ts, engineClient.ts (Cache)
-  ui/         App, Seiten je Schritt (Track, Elements = Schienenkonfigurator, Vehicles, Design, Overview, Export), PlanView (SVG, Übersichtskarte), SceneView/Viewer3D (three.js, „+“-Marker, Drop),
+  ui/         App, Seiten je Schritt (Track, Elements = Schienen Konfigurator, Vehicles, Design, Overview, Export), PlanView (SVG, immer die ganze Strecke), StructureTree (Strukturbaum: Bauteile, Gebäude, Züge, mit Farbfeld und Mülleimer), VehicleModel (3D-Modell im Fenster der Schritte Züge und Design), thumbnails/previews/Thumb (Vorschaubilder der Kacheln), SceneView/Viewer3D (three.js, „+“-Marker, Drop),
               TrackTools (Teile-Menü, Drag-Daten), texts_de/texts_en, styles.css
 web/tests/    Unit-Tests; e2e/ Browser-Tests; render.test.ts = Bilder ohne Browser (`npm run render`)
 docs/         decisions/ (ADRs)

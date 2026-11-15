@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { EngineClient } from "../app/engineClient";
 import type { State } from "../app/store";
 import type { Building } from "../core/buildings";
-import { analyze } from "../core/layout";
+import { analyze, pieceColor } from "../core/layout";
 import type { Analysis } from "../core/layout";
 import type { Project } from "../core/project";
 import { route, trainPoses } from "../core/route";
@@ -26,8 +26,11 @@ export interface SceneResult {
 }
 
 const SUPPORT_COLOR = "#8E9089";
+/** How much of the rails shows in the steps for vehicles (1 = solid). */
+export const VEHICLE_RAIL_OPACITY = 0.22;
 
-async function trackParts(engine: EngineClient, project: Project, analysis: Analysis, highlight: { piece?: string }): Promise<ScenePart[]> {
+/** `piece`: one piece shows lighter; `type`: every piece of this element type (the element that is configured). */
+export async function trackParts(engine: EngineClient, project: Project, analysis: Analysis, highlight: { piece?: string; type?: string }): Promise<ScenePart[]> {
   const typeOf = new Map(project.elements.map((e) => [e.id, e]));
   const pieces = await Promise.all(
     project.layout.pieces.map(async (piece) => {
@@ -35,7 +38,7 @@ async function trackParts(engine: EngineClient, project: Project, analysis: Anal
       const pose = analysis.poses.get(piece.id);
       if (!type || !pose) return undefined;
       const mesh = await engine.element(type, piece.variant, trackOptions(project));
-      const part: ScenePart = { mesh: mesh.mesh, color: type.color, x: pose.x, y: pose.y, z: pose.z, rotation: pose.rotation, highlight: piece.id === highlight.piece };
+      const part: ScenePart = { mesh: mesh.mesh, color: pieceColor(piece, type), x: pose.x, y: pose.y, z: pose.z, rotation: pose.rotation, highlight: piece.id === highlight.piece || (highlight.type !== undefined && piece.type === highlight.type) };
       return part;
     }),
   );
@@ -48,7 +51,7 @@ async function trackParts(engine: EngineClient, project: Project, analysis: Anal
   return [...pieces.filter((p): p is ScenePart => p !== undefined), ...pillars];
 }
 
-async function buildingParts(engine: EngineClient, b: Building, highlight: boolean): Promise<ScenePart[]> {
+export async function buildingParts(engine: EngineClient, b: Building, highlight: boolean): Promise<ScenePart[]> {
   const m = await engine.building(b);
   const at = (mesh: typeof m.base, color: string): ScenePart => ({ mesh: mesh.mesh, color, x: b.x, y: b.y, z: 0, rotation: b.rotation, highlight });
   return [at(m.base, b.colors.walls), ...m.roofs.map((r) => at(r, b.colors.roof)), ...(m.details ? [at(m.details, b.colors.details)] : [])];
@@ -84,13 +87,13 @@ export function useAnalysis(project: Project): Analysis {
 }
 
 /** The whole train in a row on straight track, the first vehicle in front (+X). */
-async function trainRow(engine: EngineClient, project: Project, selected?: string): Promise<ScenePart[]> {
+async function trainRow(engine: EngineClient, project: Project, selected?: string, railOpacity?: number): Promise<ScenePart[]> {
   const gap = 2 * COUPLER_REACH;
   const total = project.vehicles.reduce((n, v) => n + v.length + gap, 0);
   const rail = makeElement("straight", { length: 216, color: project.elements[0]?.color ?? "#E4BD68" });
   const railMesh = await engine.element(rail, PLAIN, trackOptions(project));
   const rails: ScenePart[] = [];
-  for (let x = -total / 2 - 30; x < total / 2 + 30; x += rail.length) rails.push({ mesh: railMesh.mesh, color: rail.color, x, y: 0, z: 0, rotation: 0 });
+  for (let x = -total / 2 - 30; x < total / 2 + 30; x += rail.length) rails.push({ mesh: railMesh.mesh, color: rail.color, x, y: 0, z: 0, rotation: 0, ...(railOpacity !== undefined ? { opacity: railOpacity } : {}) });
   let cursor = total / 2;
   const cars: ScenePart[] = [];
   for (const v of project.vehicles) {
@@ -101,42 +104,23 @@ async function trainRow(engine: EngineClient, project: Project, selected?: strin
   return [...rails, ...cars];
 }
 
-export function useScene(engine: EngineClient, state: State): SceneResult {
-  const { project, step, selection, trainView } = state;
-  const analysis = useAnalysis(project);
-  const [result, setResult] = useState<SceneResult>({ parts: [], busy: true, key: "" });
-  const vehicleStep = step === "vehicles" || step === "design";
-  const subject =
-    step === "elements" ? selection.element : vehicleStep ? (trainView ? `train${project.vehicles.length}` : selection.vehicle) : `${project.layout.pieces.length}|${project.vehicles.length}|${project.buildings.length}`;
-  const key = `${vehicleStep ? "vehicles" : step === "export" || step === "overview" ? "track" : step}|${subject}`;
+/** The vehicle on a piece of straight track, or the whole train in a row; the rails are see-through. */
+async function vehicleScene(engine: EngineClient, project: Project, selected: string | undefined, wholeTrain: boolean): Promise<ScenePart[]> {
+  if (wholeTrain) return trainRow(engine, project, selected, VEHICLE_RAIL_OPACITY);
+  const v = project.vehicles.find((x) => x.id === selected);
+  if (!v) return [];
+  const rail = makeElement("straight", { length: Math.max(144, v.length + 60), color: project.elements[0]?.color ?? "#E4BD68" });
+  const railMesh = await engine.element(rail, PLAIN, trackOptions(project));
+  const railPart: ScenePart = { mesh: railMesh.mesh, color: rail.color, x: -rail.length / 2, y: 0, z: 0, rotation: 0, opacity: VEHICLE_RAIL_OPACITY };
+  return [railPart, ...(await vehicleParts(engine, project, v, { x: 0, y: 0, z: 0, rotation: 0 }, { inside: v.kind === "cyberbrick" }))];
+}
 
+/** Builds parts asynchronously; `deps` say when they have to be built again. */
+function useParts(build: () => Promise<ScenePart[]>, key: string, deps: readonly unknown[]): SceneResult {
+  const [result, setResult] = useState<SceneResult>({ parts: [], busy: true, key: "" });
   useEffect(() => {
     let cancelled = false;
     setResult((r) => ({ ...r, busy: true }));
-    const build = async (): Promise<ScenePart[]> => {
-      if (step === "elements") {
-        const type = project.elements.find((e) => e.id === selection.element);
-        if (!type) return [];
-        const mesh = await engine.element(type, PLAIN, trackOptions(project));
-        return [{ mesh: mesh.mesh, color: type.color, x: 0, y: 0, z: 0, rotation: 0 }];
-      }
-      if (vehicleStep) {
-        if (trainView) return trainRow(engine, project, selection.vehicle);
-        const v = project.vehicles.find((x) => x.id === selection.vehicle);
-        if (!v) return [];
-        // the vehicle on a piece of straight track
-        const rail = makeElement("straight", { length: Math.max(144, v.length + 60), color: project.elements[0]?.color ?? "#E4BD68" });
-        const railMesh = await engine.element(rail, PLAIN, trackOptions(project));
-        const railPart: ScenePart = { mesh: railMesh.mesh, color: rail.color, x: -rail.length / 2, y: 0, z: 0, rotation: 0 };
-        return [railPart, ...(await vehicleParts(engine, project, v, { x: 0, y: 0, z: 0, rotation: 0 }, { inside: v.kind === "cyberbrick" }))];
-      }
-      const track = await trackParts(engine, project, analysis, step === "track" ? { piece: selection.piece } : {});
-      const houses = await Promise.all(project.buildings.map((b) => buildingParts(engine, b, step === "track" && b.id === selection.building)));
-      const points = route(project.layout, project.elements, analysis);
-      const poses = trainPoses(points, project.vehicles.map((v) => v.length));
-      const train = await Promise.all(project.vehicles.map((v, i) => (poses[i] ? vehicleParts(engine, project, v, poses[i]) : Promise.resolve([]))));
-      return [...track, ...houses.flat(), ...train.flat()];
-    };
     build()
       .then((parts) => {
         if (!cancelled) setResult({ parts, busy: false, key });
@@ -147,7 +131,34 @@ export function useScene(engine: EngineClient, state: State): SceneResult {
     return () => {
       cancelled = true;
     };
-  }, [engine, project, step, selection.element, selection.vehicle, selection.piece, selection.building, analysis, key, trainView, vehicleStep]);
-
+    // `build` follows from `deps`
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
   return result;
+}
+
+/** The big 3D view: the whole track with buildings and train, in every step. Switching steps keeps the camera. */
+export function useScene(engine: EngineClient, state: State): SceneResult {
+  const { project, step, selection } = state;
+  const analysis = useAnalysis(project);
+  const key = `track|${project.layout.pieces.length}|${project.vehicles.length}|${project.buildings.length}`;
+  const build = async (): Promise<ScenePart[]> => {
+    // the track step marks the selected piece or building, the elements step where the configured element sits
+    const track = await trackParts(engine, project, analysis, step === "track" ? { piece: selection.piece } : step === "elements" ? { type: selection.element } : {});
+    const houses = await Promise.all(project.buildings.map((b) => buildingParts(engine, b, step === "track" && b.id === selection.building)));
+    const points = route(project.layout, project.elements, analysis);
+    const poses = trainPoses(points, project.vehicles.map((v) => v.length));
+    const train = await Promise.all(project.vehicles.map((v, i) => (poses[i] ? vehicleParts(engine, project, v, poses[i]) : Promise.resolve([]))));
+    return [...track, ...houses.flat(), ...train.flat()];
+  };
+  return useParts(build, key, [engine, project, step, selection.element, selection.piece, selection.building, analysis, key]);
+}
+
+/** The small 3D view of the vehicle steps: the selected vehicle, or the whole train, on see-through rails. */
+export function useVehicleScene(engine: EngineClient, state: State): SceneResult {
+  const { project, selection, trainView } = state;
+  const lengths = project.vehicles.map((v) => v.length);
+  // the camera looks again when the vehicle, or the train, gets another size
+  const key = trainView ? `train|${lengths.join(",")}` : `${selection.vehicle}|${project.vehicles.find((v) => v.id === selection.vehicle)?.length}`;
+  return useParts(() => vehicleScene(engine, project, selection.vehicle, trainView), key, [engine, project, selection.vehicle, trainView, key]);
 }

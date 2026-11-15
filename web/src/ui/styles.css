@@ -6,6 +6,11 @@
   --radius-c: 12px;
   --inset-l: 540px;
   --inset-r: 14px;
+  /* the plan panel on the right is as wide as the page panel on the left; the plan on top of it is
+     over 20% larger than the old small map (294 x 191 px) */
+  --page-w: 404px;
+  --plan-w: var(--page-w);
+  --plan-h: 243px;
   color-scheme: light;
 }
 :root,
@@ -113,6 +118,10 @@ select.input { padding-right: 6px; }
 .field-label { color: var(--muted); font-size: 13px; }
 .field-control { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .field-control > .input, .field-control > select { flex: 1; }
+.field-control > .rows-select { flex: 0 0 76px; }
+.check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap; }
+.check .toggle { margin-top: 0; }
+.check:has(.toggle:disabled) { cursor: default; opacity: 0.5; }
 .field-hint { grid-column: 2; font-size: 12px; color: var(--muted); display: block; }
 .field-hint.error { color: var(--error); }
 .number { display: flex; align-items: center; gap: 4px; }
@@ -151,12 +160,8 @@ select.input { padding-right: 6px; }
 .palette-title { font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
 .palette-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 
-.palette-list, .card-list { display: flex; flex-direction: column; gap: 4px; }
-.palette-item { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 8px; padding: 4px 6px; border-radius: var(--radius-c); }
-.palette-item:hover { background: var(--surface-2); }
+.card-list { display: flex; flex-direction: column; gap: 4px; }
 .palette-icon { display: inline-flex; filter: saturate(1.4) brightness(0.85); }
-.palette-name { font-size: 13.5px; }
-.palette-actions { display: flex; gap: 4px; }
 .card { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--radius-c); border: 1px solid transparent; background: var(--surface-2); cursor: pointer; text-align: left; width: 100%; }
 .card.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 .card-main { display: flex; align-items: center; gap: 10px; flex: 1; border: 0; background: transparent; cursor: pointer; text-align: left; padding: 0; min-width: 0; }
@@ -164,11 +169,40 @@ select.input { padding-right: 6px; }
 .card-actions { display: flex; }
 
 /* palettes of vehicles and buildings: tiles that can be dragged */
-.vehicle-grid, .building-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+.vehicle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
 .tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: var(--radius-c); border: 1px solid transparent; background: var(--surface-2); cursor: grab; font-size: 12px; line-height: 1.2; text-align: center; color: var(--ink); }
 .tile:hover { border-color: var(--accent); }
 .tile:active { cursor: grabbing; }
 .tile svg { color: var(--ink); }
+
+/* tabs of the track step and their tiles with preview pictures */
+.tabs { display: flex; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--line); }
+.tab { flex: 1; height: 38px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; }
+.tab:hover { color: var(--ink); }
+.tab.selected { color: var(--ink); border-bottom-color: var(--accent); }
+.tab-panel { display: flex; flex-direction: column; gap: 10px; }
+/* the first section after the tabs is no "first of type": it keeps its line and space */
+.tab-panel + .section { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 14px; }
+.thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.thumb-grid.wide { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.thumb-tile { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 6px; border-radius: var(--radius-c); border: 1px solid transparent; background: var(--surface-2); text-align: center; color: var(--ink); font-size: 12.5px; line-height: 1.2; }
+.thumb-tile.click { cursor: pointer; }
+.thumb-tile.grab { cursor: grab; }
+.thumb-tile.grab:active { cursor: grabbing; }
+.thumb-tile:hover { border-color: var(--accent); }
+.thumb { display: grid; place-items: center; width: 100%; aspect-ratio: 17 / 10; border-radius: 8px; background: var(--surface); overflow: hidden; }
+.thumb[data-state="waiting"] { background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%) 0 0 / 220% 100%; animation: thumb-wait 1.4s linear infinite; }
+.thumb img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.thumb-icon { display: inline-flex; filter: saturate(1.4) brightness(0.85); }
+.thumb svg { color: var(--muted); }
+.thumb-icon svg { color: inherit; }
+.thumb-name { display: block; padding: 0 2px; overflow-wrap: anywhere; }
+/* the two buttons of a curve sit side by side when they fit, else one above the other */
+.thumb-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.thumb-actions .button.small { flex: 1 1 auto; padding: 0 6px; font-size: 12px; }
+.thumb-plus { position: absolute; top: 10px; right: 10px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--panel-bg); border: 1px solid var(--line); color: var(--accent); font-weight: 700; line-height: 1; }
+@keyframes thumb-wait { from { background-position: 120% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .thumb[data-state="waiting"] { animation: none; } }
 .train-list { min-height: 48px; border-radius: var(--radius-c); }
 .card.drop-before { box-shadow: 0 -3px 0 0 var(--accent); }
 .card.drop-after { box-shadow: 0 3px 0 0 var(--accent); }
@@ -190,15 +224,18 @@ select.input { padding-right: 6px; }
 /* ------------------------------------------------------------------ the 3D view and the plan */
 .viewer { position: relative; width: 100%; height: 100%; }
 .viewer canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-.viewer-note { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: var(--muted); }
+.viewer-note { position: absolute; left: calc(50% - var(--inset-right, 0px) / 2); top: 50%; transform: translate(-50%, -50%); color: var(--muted); }
 .viewer-note.error { color: var(--error); top: auto; bottom: 90px; }
 
-.plan { position: relative; flex: 1; min-height: 0; border-radius: 16px; background: var(--plan-bg); overflow: hidden; touch-action: none; }
+.plan { position: relative; flex: none; height: var(--plan-h); border-radius: 16px; background: var(--plan-bg); overflow: hidden; touch-action: none; }
 .plan svg { display: block; cursor: grab; }
 .plan svg:active { cursor: grabbing; }
 .plan .piece polygon { stroke: rgba(0, 0, 0, 0.35); stroke-width: 1; cursor: pointer; }
 .plan .piece .groove { fill: none; stroke: var(--groove); stroke-width: 1.4; pointer-events: none; }
 .plan .piece.selected polygon { stroke: var(--accent); stroke-width: 3; }
+.plan .car { stroke: rgba(0, 0, 0, 0.55); stroke-width: 1; pointer-events: none; }
+.plan .car-nose { fill: rgba(0, 0, 0, 0.55); stroke: none; pointer-events: none; }
+.plan .tint { fill: var(--accent); fill-opacity: 0.62; stroke: var(--accent); stroke-width: 3; pointer-events: none; }
 .plan .piece.marked polygon { stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 5 3; }
 .plan .piece.overlap polygon { stroke: var(--error); stroke-width: 2.5; }
 .plan .piece.floating polygon { stroke: var(--warning); stroke-width: 2.5; stroke-dasharray: 3 3; }
@@ -235,24 +272,61 @@ select.input { padding-right: 6px; }
 .step-button.selected .step-no { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 45%, transparent); }
 .step-name { font-size: 11.5px; line-height: 1.15; text-align: center; hyphens: manual; overflow-wrap: anywhere; max-width: 100%; }
 
-.panel-page { position: absolute; z-index: 3; left: 122px; top: 76px; bottom: 74px; width: 404px; padding: 20px; overflow-y: auto; }
-.nav-buttons { position: absolute; z-index: 3; left: 122px; bottom: 14px; width: 404px; display: flex; justify-content: space-between; }
+.panel-page { position: absolute; z-index: 3; left: 122px; top: 76px; bottom: 74px; width: var(--page-w); padding: 20px; overflow-y: auto; }
+/* the elements step: a second window of the same size next to the page; the 3D view starts behind it */
+.panel-detail { position: absolute; z-index: 3; left: calc(122px + var(--page-w) + 14px); top: 76px; bottom: 74px; width: var(--page-w); padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.with-detail { --inset-l: calc(122px + 2 * var(--page-w) + 28px); }
+.element-view { position: relative; flex: none; height: 230px; border-radius: 16px; background: var(--plan-bg); overflow: hidden; }
+.panel-detail .heading { margin-bottom: 0; }
+.detail-scroll { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -8px; padding: 0 8px; }
+.nav-buttons { position: absolute; z-index: 3; left: 122px; bottom: 14px; width: var(--page-w); display: flex; justify-content: space-between; }
 .nav-buttons .button { height: 44px; padding: 0 20px; border-radius: 999px; box-shadow: var(--shadow); }
 
-/* the plan is a small map at the bottom right; the 3D view keeps the whole width */
+/* the plan and the structure tree fill the whole right side; the 3D view keeps the whole width and
+   centres on what the panel leaves free */
 .with-plan { --inset-r: 0px; }
-.panel-plan { position: absolute; z-index: 3; right: 14px; bottom: 14px; width: 320px; height: 268px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.panel-plan { position: absolute; z-index: 3; right: 14px; top: 76px; bottom: 14px; width: var(--plan-w); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+/* tree closed: the plan fills what is free; open: the plan keeps its size and the tree gets the rest */
+.panel-plan[data-tree="folded"] .plan { flex: 1 1 auto; height: auto; min-height: var(--plan-h); }
 .panel-plan .section-head { display: flex; flex-direction: column; gap: 2px; }
 .panel-plan .section-head h3 { margin: 0; font-size: 13px; }
 .panel-plan .section-head .small { font-size: 11px; line-height: 1.3; }
 .plan svg { cursor: default; }
+
+/* structure tree: colour field left, bin right */
+.tree-box { display: flex; flex-direction: column; flex: none; min-height: 0; border-top: 1px solid var(--line); }
+.panel-plan[data-tree="open"] .tree-box { flex: 1; }
+/* the three categories: the header is always there, an open one shows its list below it */
+.tree-section { display: flex; flex-direction: column; flex: none; min-height: 0; }
+.tree-section.open { flex: 0 1 auto; min-height: 96px; }
+.tree-group { display: flex; align-items: center; gap: 4px; flex: none; padding: 9px 2px 7px; border: 0; background: transparent; cursor: pointer; text-align: left; color: var(--ink); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: 1px; }
+.tree-group:hover { color: var(--accent); }
+.tree-section + .tree-section { border-top: 1px solid var(--line); }
+.tree { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; margin: 0 -6px; padding: 0 6px 6px; }
+.tree-empty { padding: 4px 4px 8px; margin: 0; }
+.tree-fold { display: inline-flex; transition: transform 0.12s; }
+.tree-fold.folded { transform: rotate(-90deg); }
+.tree-box svg { width: 16px; height: 16px; }
+.tree-row { flex: none; display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 3px 4px 3px 6px; border-radius: 10px; cursor: pointer; }
+.tree-row:hover { background: var(--surface-2); }
+.tree-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree-row.selected { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); box-shadow: inset 3px 0 0 var(--accent); }
+.tree-chip { flex: none; width: 24px; height: 16px; padding: 0; border-radius: 4px; border: 1px solid rgba(0, 0, 0, 0.35); }
+button.tree-chip { cursor: pointer; }
+button.tree-chip:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tree-no { flex: none; min-width: 20px; text-align: right; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.tree-name { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row.selected .tree-name { font-weight: 600; }
+.tree-trash { flex: none; width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.tree-trash:hover { background: color-mix(in srgb, var(--error) 14%, transparent); color: var(--error); }
+.tree-palette { flex: none; padding: 4px 4px 8px 38px; }
 
 /* "+" at the free ends in the 3D view */
 .marker { position: absolute; left: 0; top: 0; z-index: 2; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--accent); background: var(--panel-bg); color: var(--accent); font-size: 20px; font-weight: 700; line-height: 1; display: grid; place-items: center; cursor: pointer; box-shadow: var(--shadow); padding: 0; }
 .marker:hover, .marker.hover { background: var(--accent); color: var(--accent-ink); transform-origin: center; }
 .marker.active { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent), var(--shadow); }
 .viewer.dropping { outline: 3px dashed color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: -6px; }
-.start-piece { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; height: 48px; padding: 0 22px; border-radius: 999px; font-size: 15px; box-shadow: var(--shadow); }
+.start-piece { position: absolute; left: calc(50% - var(--inset-right, 0px) / 2); top: 50%; transform: translate(-50%, -50%); z-index: 2; height: 48px; padding: 0 22px; border-radius: 999px; font-size: 15px; box-shadow: var(--shadow); }
 
 /* the menu of pieces at a "+" */
 .piece-menu { position: absolute; z-index: 4; width: 300px; max-height: 330px; padding: 8px; display: flex; flex-direction: column; gap: 6px; border-radius: 16px; }
@@ -263,7 +337,6 @@ select.input { padding-right: 6px; }
 .piece-menu-item:hover, .piece-menu-row:hover { background: var(--surface-2); }
 .piece-menu-name { flex: 1; font-size: 13px; min-width: 0; line-height: 1.25; }
 .piece-menu-row .button.small { padding: 0 8px; flex: none; }
-.palette-item[draggable="true"] { cursor: grab; }
 
 /* asking before the whole track is cleared */
 .confirm { margin-top: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); }
@@ -271,12 +344,11 @@ select.input { padding-right: 6px; }
 .button.subtle { margin-top: 10px; }
 
 .statusbar { position: absolute; z-index: 7; left: calc(var(--inset-l) + (100% - var(--inset-l) - var(--inset-r)) / 2); bottom: 24px; transform: translateX(-50%); pointer-events: none; }
+.with-plan .statusbar { left: calc(var(--inset-l) + (100% - var(--inset-l) - var(--plan-w) - 28px) / 2); }
 .toast { display: block; padding: 8px 16px; border-radius: 999px; background: var(--panel-bg); border: 1px solid var(--panel-border); box-shadow: var(--shadow); }
 
 @media (max-width: 1400px) {
-  .panel-plan { width: 280px; height: 236px; }
-  .panel-page, .nav-buttons { width: 370px; }
-  :root { --inset-l: 506px; }
+  :root { --inset-l: 506px; --page-w: 370px; --plan-h: 222px; }
 }
 
 /* ------------------------------------------------------------------ narrow screens: normal flow */
@@ -295,9 +367,16 @@ select.input { padding-right: 6px; }
   .step-name { display: none; }
   .step-button.selected .step-name { display: inline; }
   .panel-page { position: static; width: auto; order: 3; overflow: visible; }
+  .panel-detail { position: static; width: auto; order: 3; }
+  .detail-scroll { flex: none; overflow: visible; }
+  .thumb-grid.wide { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
   .nav-buttons { position: static; width: auto; order: 4; }
-  .panel-plan { position: static; width: auto; height: 36vh; order: 3; }
-  .statusbar { left: 50%; position: fixed; }
+  .panel-plan { position: static; width: auto; order: 3; }
+  .plan, .panel-plan[data-tree] .plan { flex: none; height: 36vh; min-height: 0; }
+  .tree-box, .panel-plan[data-tree="open"] .tree-box { flex: none; }
+  .tree-section.open { flex: none; min-height: 0; }
+  .tree { flex: none; max-height: 40vh; }
+  .statusbar, .with-plan .statusbar { left: 50%; position: fixed; }
   .field-row { grid-template-columns: 1fr; }
   .field-hint { grid-column: 1; }
 }

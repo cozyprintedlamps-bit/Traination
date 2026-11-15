@@ -2,7 +2,7 @@
 // reads it through useSyncExternalStore; every change replaces the state object.
 import { analyze, attach, nextPort, removePiece } from "../core/layout";
 import type { Piece, WorldPort } from "../core/layout";
-import { DEFAULT_SETTINGS, arrangeBuildings, buildTemplate, deserialize, newProject, serialize, trainTemplate } from "../core/project";
+import { DEFAULT_SETTINGS, arrangeBuildings, buildTemplate, deserialize, newProject, serialize, trainTemplate, withStandardElements } from "../core/project";
 import type { Project, Settings, TemplateId, TrainTemplateId } from "../core/project";
 import { PLAIN, makeElement, newId } from "../core/track";
 import type { ElementKind, ElementType } from "../core/track";
@@ -20,6 +20,14 @@ import { PRINTERS } from "../presets/print";
 export type StepId = "track" | "elements" | "vehicles" | "design" | "overview" | "export";
 export const STEPS: readonly StepId[] = ["track", "elements", "vehicles", "design", "overview", "export"];
 
+/** The tabs of the track step: templates, track pieces, buildings. */
+export type TrackTab = "templates" | "rails" | "buildings";
+export const TRACK_TABS: readonly TrackTab[] = ["templates", "rails", "buildings"];
+
+/** The categories of the structure tree: track pieces, buildings, the train's vehicles. */
+export type TreeGroup = "track" | "buildings" | "trains";
+export const TREE_GROUPS: readonly TreeGroup[] = ["track", "buildings", "trains"];
+
 export interface Selection {
   piece?: string;
   /** the free end new pieces are plugged into: piece id and port index */
@@ -27,6 +35,8 @@ export interface Selection {
   element?: string;
   vehicle?: string;
   building?: string;
+  /** the vehicle picked in the tree (marked blue in the plan); `vehicle` itself is always set */
+  car?: string;
 }
 
 export interface State {
@@ -39,6 +49,10 @@ export interface State {
   fitToken: number;
   /** vehicle steps: show the whole train instead of the selected vehicle */
   trainView: boolean;
+  /** the open tab of the track step */
+  trackTab: TrackTab;
+  /** which categories of the structure tree are open (all closed at the start) */
+  treeOpen: Record<TreeGroup, boolean>;
 }
 
 const STORAGE_KEY = "traination.project";
@@ -53,6 +67,14 @@ function loadSaved(): Project | undefined {
   }
 }
 
+/** A piece or a building is selected, or the vehicle is gone: the vehicle mark goes (one thing is marked at a time). */
+function withoutCar(s: Selection, vehicles?: readonly Vehicle[]): Selection {
+  if (!s.car) return s;
+  if (!(s.piece || s.building) && (!vehicles || vehicles.some((v) => v.id === s.car))) return s;
+  const { car: _car, ...rest } = s;
+  return rest;
+}
+
 export class Store {
   private state: State;
   private readonly listeners = new Set<() => void>();
@@ -62,7 +84,7 @@ export class Store {
 
   constructor(initial?: Project) {
     const project = initial ?? loadSaved() ?? newProject("oval");
-    this.state = { project, step: "track", selection: { vehicle: project.vehicles[0]?.id, element: project.elements[0]?.id }, canUndo: false, canRedo: false, fitToken: 0, trainView: false };
+    this.state = { project, step: "track", selection: { vehicle: project.vehicles[0]?.id, element: project.elements[0]?.id }, canUndo: false, canRedo: false, fitToken: 0, trainView: false, trackTab: "templates", treeOpen: { track: false, buildings: false, trains: false } };
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -95,7 +117,7 @@ export class Store {
     this.undoStack.push(before);
     if (this.undoStack.length > HISTORY) this.undoStack.shift();
     this.redoStack = [];
-    this.set({ project: after, ...(selection ? { selection } : {}) });
+    this.set({ project: after, selection: withoutCar(selection ?? this.state.selection, after.vehicles) });
     this.autosave();
   }
 
@@ -124,6 +146,7 @@ export class Store {
       element: p.elements.some((e) => e.id === s.element) ? s.element : p.elements[0]?.id,
       vehicle: p.vehicles.some((v) => v.id === s.vehicle) ? s.vehicle : p.vehicles[0]?.id,
       ...(s.building && p.buildings.some((b) => b.id === s.building) ? { building: s.building } : {}),
+      ...(s.car && p.vehicles.some((v) => v.id === s.car) ? { car: s.car } : {}),
     };
   }
 
@@ -133,6 +156,14 @@ export class Store {
 
   setTrainView(trainView: boolean): void {
     this.set({ trainView });
+  }
+
+  setTrackTab(trackTab: TrackTab): void {
+    this.set({ trackTab });
+  }
+
+  setTreeGroup(group: TreeGroup, open: boolean): void {
+    this.set({ treeOpen: { ...this.state.treeOpen, [group]: open } });
   }
 
   // ---------------------------------------------------------------------------- closing the track
@@ -205,8 +236,14 @@ export class Store {
     this.update((p) => ({ ...p, buildings: p.buildings.filter((b) => b.id !== id) }), { ...this.state.selection, building: undefined });
   }
 
+  /** A vehicle picked in the tree stands alone; a piece or a building picked later takes the mark away. */
   select(patch: Selection): void {
-    this.set({ selection: { ...this.state.selection, ...patch } });
+    const merged: Selection = { ...this.state.selection, ...patch };
+    if (patch.car) {
+      delete merged.piece;
+      delete merged.building;
+    }
+    this.set({ selection: patch.car ? merged : withoutCar(merged) });
   }
 
   fit(): void {
@@ -280,6 +317,17 @@ export class Store {
     this.update((p) => ({ ...p, layout: { pieces: p.layout.pieces.map((x) => (x.id === id ? change(x) : x)) } }));
   }
 
+  /** Gives a piece its own colour; `undefined`, or the colour of its type, goes back to the type's colour. */
+  setPieceColor(id: string, color: string | undefined): void {
+    const typeOf = new Map(this.state.project.elements.map((e) => [e.id, e]));
+    this.changePiece(id, (piece) => {
+      const { color: _old, ...plain } = piece;
+      void _old;
+      const same = color === undefined || color.toUpperCase() === typeOf.get(piece.type)?.color.toUpperCase();
+      return same ? plain : { ...plain, color };
+    });
+  }
+
   /** Mirror a piece (left curve ↔ right curve). */
   mirrorPiece(id: string): void {
     this.changePiece(id, (x) => ({ ...x, variant: { ...x.variant, mirror: !x.variant.mirror } }));
@@ -329,9 +377,7 @@ export class Store {
   applyTemplate(template: TemplateId): void {
     this.update((p) => {
       // make sure the standard elements the template needs exist
-      const fresh = newProject("empty").elements;
-      const have = new Set(p.elements.map((e) => e.id));
-      const built = buildTemplate(template, [...p.elements, ...fresh.filter((e) => !have.has(e.id))]);
+      const built = buildTemplate(template, withStandardElements(p.elements));
       // the buildings of the last ready-made track go, the user's own move beside the new track
       const own = p.buildings.filter((b) => !b.fromTemplate);
       return { ...p, elements: built.elements, layout: built.layout, buildings: [...built.buildings, ...arrangeBuildings(built.layout, built.elements, own)] };

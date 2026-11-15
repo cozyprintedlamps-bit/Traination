@@ -1,14 +1,14 @@
-// Step 4: the artwork of the selected vehicle (shape options, pattern, lettering, face, lamps) and
-// the colour of each main part; whether the parts are printed separately; colours of the track
-// pieces and buildings.
+// Step 4: the colour of each main part of the selected vehicle and whether the parts are printed
+// separately; colours of the track pieces and buildings. The shape options and the artwork of a
+// vehicle (windows, roof, pattern, lettering …) are in step 3 (VehicleLook). The window next to the
+// page is the one of step 3: the 3D model of the train and the train in order.
 import { useAppState, useStore } from "../app/context";
 import { NO_ROOF } from "../core/buildings";
-import { COLOR_SLOTS, DECORS, HAS_CHIMNEY, HAS_DOME, HAS_LOAD, HAS_ROOF, HAS_WINDOWS, LETTERING_MAX, LOCOMOTIVES, cleanLettering } from "../core/vehicle";
-import type { Decor, Vehicle, VehicleColors, VehicleDesign } from "../core/vehicle";
-import { Choice, ColorPicker, Field, NumberField, Section, Toggle } from "./components";
+import { COLOR_SLOTS, HAS_CHIMNEY, HAS_DOME, HAS_LOAD, HAS_ROOF, LOCOMOTIVES, cleanLettering } from "../core/vehicle";
+import type { Vehicle, VehicleColors, VehicleDesign } from "../core/vehicle";
+import { ColorPicker, Section, Toggle } from "./components";
 import { buildingName, elementName, tr, vehicleName } from "./i18n";
 import type { TextKey } from "./i18n";
-import { TrainList } from "./VehiclesPage";
 
 /** Which colour slots a kind uses (the others have nothing to colour). */
 function slotsOf(v: Vehicle): (keyof VehicleColors)[] {
@@ -29,52 +29,11 @@ export function DesignPage() {
   const design = (patch: Partial<VehicleDesign>) => v && store.changeVehicle(v.id, (x: Vehicle) => ({ ...x, design: { ...x.design, ...patch } }));
   const color = (patch: Partial<VehicleColors>) => v && store.changeVehicle(v.id, (x: Vehicle) => ({ ...x, colors: { ...x.colors, ...patch } }));
   const used = new Set(project.layout.pieces.map((p) => p.type));
-  const loco = v ? LOCOMOTIVES.has(v.kind) : false;
 
   return (
     <>
-      <TrainList />
       {v && (
-        <Section title={tr("design.for", { name: vehicleName(v, index) })}>
-          <h4 className="subhead">{tr("design.options")}</h4>
-          {HAS_WINDOWS.has(v.kind) && <Toggle label={tr("field.windows")} checked={v.design.windows} onChange={(windows) => design({ windows })} />}
-          {HAS_CHIMNEY.has(v.kind) && (
-            <Field label={tr("field.chimney")}>
-              <Choice
-                value={v.design.chimney}
-                options={(["tall", "short", "funnel", "none"] as const).map((c) => ({ value: c, label: tr(`chimney.${c}` as TextKey) }))}
-                onChange={(chimney) => design({ chimney })}
-              />
-            </Field>
-          )}
-          {HAS_DOME.has(v.kind) && <Toggle label={tr("field.dome")} checked={v.design.dome} onChange={(dome) => design({ dome })} />}
-          {HAS_ROOF.has(v.kind) && (
-            <Field label={tr("field.roof")}>
-              <Choice value={v.design.roof} options={(["round", "flat", "peaked"] as const).map((r) => ({ value: r, label: tr(`roof.${r}` as TextKey) }))} onChange={(roof) => design({ roof })} />
-            </Field>
-          )}
-          {HAS_LOAD.has(v.kind) && v.kind !== "crane" && <Toggle label={tr("field.load")} checked={v.design.load} onChange={(load) => design({ load })} />}
-          <NumberField label={tr("field.body_height")} hint={tr("field.body_height_hint")} value={v.design.height} min={0} max={60} onChange={(height) => design({ height })} />
-
-          <h4 className="subhead">{tr("design.art")}</h4>
-          <Field label={tr("field.decor")}>
-            <Choice<Decor> value={v.design.decor} options={DECORS.map((d) => ({ value: d, label: tr(`decor.${d}` as TextKey) }))} onChange={(decor) => design({ decor })} />
-          </Field>
-          <Field label={tr("field.lettering")} hint={tr("field.lettering_hint")}>
-            <input
-              className="input"
-              value={v.design.lettering}
-              maxLength={LETTERING_MAX + 4}
-              placeholder="EMMA 1"
-              onChange={(e) => design({ lettering: cleanLettering(e.target.value) })}
-              data-testid="lettering"
-            />
-          </Field>
-          {loco && <Toggle label={tr("field.face")} checked={v.design.face} onChange={(face) => design({ face })} />}
-          {loco && <Toggle label={tr("field.lamps")} checked={v.design.lamps} onChange={(lamps) => design({ lamps })} />}
-          <Toggle label={tr("field.buffers")} checked={v.design.buffers} onChange={(buffers) => design({ buffers })} />
-          {loco && <Toggle label={tr("field.cowcatcher")} hint={tr("field.cowcatcher_hint")} checked={v.design.cowcatcher} onChange={(cowcatcher) => design({ cowcatcher })} />}
-
+        <Section title={tr("design.colors_for", { name: vehicleName(v, index) })}>
           <h4 className="subhead">{tr("design.parts")}</h4>
           <Toggle label={tr("design.split")} hint={tr("design.split_hint")} checked={v.design.split} onChange={(split) => design({ split })} />
           {slotsOf(v).map((slot) => (

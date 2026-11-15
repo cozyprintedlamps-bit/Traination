@@ -396,6 +396,9 @@ export function printSlider(wasm: ManifoldToplevel, l: LeverLayout): Manifold {
  * Ledges with building-brick studs on the left and/or right of the paths of an element, each side
  * with its own system and number of rows. On a curve every row of studs runs on its own arc, with
  * the pitch of the system along that arc, so that long bricks fit on each row.
+ *
+ * A stepped-down ledge (`lowered`, from two rows on): the first row beside the track is as high as
+ * the track, the rows behind it stand on a plate of the thickness of the system (`plate`).
  */
 function studLedges(wasm: ManifoldToplevel, type: ElementType, variant: Variant): Manifold | undefined {
   const sides = ledgeSides(type, variant);
@@ -411,20 +414,31 @@ function studLedges(wasm: ManifoldToplevel, type: ElementType, variant: Variant)
       const width = ledgeWidth(ledge.kind, ledge.rows);
       if (!system || width <= 0) continue;
       const studR = (system.diameter + STUD_FIT) / 2;
-      const u0 = sign > 0 ? half - 0.5 : -half - width;
-      const u1 = sign > 0 ? half + width : -half + 0.5;
-      const section = wasm.CrossSection.ofPolygons([
-        [
-          [u0, 0],
-          [u1, 0],
-          [u1, TRACK_HEIGHT],
-          [u0, TRACK_HEIGHT],
-        ],
-      ]);
-      parts.push(sweep(wasm, section, path));
-      let stud = wasm.Manifold.cylinder(system.height + 0.01, studR, studR, 32).translate([0, 0, TRACK_HEIGHT - 0.01]);
-      if (system.hollow > 0) stud = stud.subtract(wasm.Manifold.cylinder(system.height + 1, system.hollow / 2, system.hollow / 2, 24).translate([0, 0, TRACK_HEIGHT + 0.3]));
+      // a slab from `a` to `b` away from the track centre, `h` high; it reaches 0.5 mm into the track body or the slab before it
+      const slab = (a: number, b: number, h: number) => {
+        const [lo, hi] = sign > 0 ? [a, b] : [-b, -a];
+        return wasm.CrossSection.ofPolygons([
+          [
+            [lo, 0],
+            [hi, 0],
+            [hi, h],
+            [lo, h],
+          ],
+        ]);
+      };
+      const lowered = ledge.lowered === true && ledge.rows > 1;
+      const flushEdge = lowered ? half + system.pitch : half + width;
+      parts.push(sweep(wasm, slab(half - 0.5, flushEdge, TRACK_HEIGHT), path));
+      if (lowered) parts.push(sweep(wasm, slab(flushEdge - 0.5, half + width, system.plate), path));
+      // a stud on a plate of height `top`
+      const studAt = (top: number): Manifold => {
+        const stud = wasm.Manifold.cylinder(system.height + 0.01, studR, studR, 32).translate([0, 0, top - 0.01]);
+        return system.hollow > 0 ? stud.subtract(wasm.Manifold.cylinder(system.height + 1, system.hollow / 2, system.hollow / 2, 24).translate([0, 0, top + 0.3])) : stud;
+      };
+      const high = studAt(TRACK_HEIGHT);
+      const low = lowered ? studAt(system.plate) : high;
       for (let r = 0; r < ledge.rows; r++) {
+        const stud = lowered && r > 0 ? low : high;
         const u = sign * (half + system.pitch * (r + 0.5));
         // the row runs on its own arc: shorter on the inside of a curve, longer on the outside
         const scale = path.kind === "arc" ? (path.radius - Math.sign(path.sweep) * u) / path.radius : 1;
